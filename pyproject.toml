@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "behavioral-decoding"
+version = "0.1.0"
+description = "Multimodal decoding of individual choice and aggregate market behaviour from fMRI, EEG, facial video, and self-report."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Aayush Gandhi" }, { name = "Gowthaam Gopalakrishnan" }]
+keywords = [
+    "neuroforecasting",
+    "fMRI",
+    "EEG",
+    "multimodal",
+    "affective neuroscience",
+    "decision making",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "imbalanced-learn>=0.12",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+fmri = ["nilearn>=0.10", "nibabel>=5.0"]
+eeg = ["mne>=1.5"]
+face = ["opencv-python>=4.8"]
+vision = ["torch>=2.0", "transformers>=4.35"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5"]
+all = [
+    "nilearn>=0.10",
+    "nibabel>=5.0",
+    "mne>=1.5",
+    "opencv-python>=4.8",
+    "torch>=2.0",
+    "transformers>=4.35",
+]
+
+[project.scripts]
+bd-demo = "behavioral_decoding.cli:demo"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    # imbalanced-learn dropped Python 3.9 at 0.13, so a 3.9 environment is
+    # pinned to 0.12.x, which trips two scikit-learn 1.6 deprecations on every
+    # single fit. Under bagging that is tens of thousands of identical lines,
+    # which buries anything real. Both filters are message-specific on purpose;
+    # remove them once this project's floor is Python 3.10.
+    "ignore:.*_validate_data.*is deprecated in 1\\.6.*:FutureWarning",
+    "ignore:.*use `_get_tags` and `_more_tags`.*:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+ignore = [
+    # PEP 585/604 syntax modernisations. Skipped while the floor is Python 3.9:
+    # `from __future__ import annotations` makes them safe in annotations, but
+    # not in the runtime positions this codebase also uses them in.
+    "UP006",  # typing.Dict -> dict
+    "UP007",  # Union[X, Y] -> X | Y
+    "UP035",  # deprecated typing imports
+    "UP045",  # Optional[X] -> X | None
+    "B905",   # zip(strict=) is 3.10+
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]

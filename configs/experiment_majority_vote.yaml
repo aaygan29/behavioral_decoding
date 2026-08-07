@@ -1,0 +1,54 @@
+# Majority-vote reconciliation.
+#
+# The right choice when subject count is low. Hard voting has no weights to
+# estimate, so it cannot overfit the weighting, which accuracy-weighted
+# reconciliation can when out-of-fold scores are themselves noisy.
+#
+# Run this alongside the default config and report both. If the two disagree
+# substantially, the disagreement is information: it means the weight estimates
+# are unstable, and `weight_stability` in the run record will show it.
+
+name: majority_vote
+seed: 0
+output_dir: results
+
+data:
+  modalities: [fmri, eeg, face, behavior]
+  root: data/raw
+  align_how: inner
+  subject_column: subject_id
+  stimulus_column: stimulus_id
+  outcome_column: choice
+  aggregate_outcome_path: null
+
+balance:
+  sampler: null
+  k_neighbors: null
+  auto_recommend: true
+
+model:
+  reconciliation: majority
+  weight_metric: balanced_accuracy
+  drop_below_chance: true
+  weight_floor: 0.0
+  base_learner:
+    fmri: logistic
+    eeg: logistic
+    face: logistic
+    behavior: gradient_boosting
+  n_bags:
+    fmri: 25
+    eeg: 25
+    face: 40
+    behavior: 25
+  max_samples: 0.8
+  max_features: 1.0
+
+evaluation:
+  n_splits_outer: 5
+  n_splits_inner: 4
+  n_bootstrap: 2000
+  n_permutations: 1000
+  forecast_task: regression
+  forecast_splits: 5
+  aggregate_statistic: mean

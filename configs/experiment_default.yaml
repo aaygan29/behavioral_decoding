@@ -1,0 +1,71 @@
+# Default experiment configuration.
+#
+# The resolved version of this file is written into every run record. Change it
+# here rather than passing overrides on the command line, so the config that
+# produced a number is always recoverable from the number.
+
+name: default
+seed: 0
+output_dir: results
+
+data:
+  modalities: [fmri, eeg, face, behavior]
+  root: data/raw
+  # Inner join across modalities. Lossy on purpose: a trial missing from one
+  # modality is dropped rather than imputed, because imputation fitted outside
+  # the CV fold leaks. Set to "outer" only with a fold-internal imputer.
+  align_how: inner
+  subject_column: subject_id
+  stimulus_column: stimulus_id
+  outcome_column: choice
+  aggregate_outcome_path: null
+
+balance:
+  # null means let recommend_strategy() choose per modality from the observed
+  # imbalance: class weights below ~3:1, borderline-SMOTE for high-dimensional
+  # face embeddings, plain SMOTE elsewhere, nothing below 6 minority samples.
+  sampler: null
+  k_neighbors: null
+  auto_recommend: true
+
+model:
+  # accuracy_weighted | majority | soft
+  #
+  # Fix this before the run. Choosing whichever rule scored best after seeing
+  # the results is selection on the test set. Report the others as a robustness
+  # check with the selection rule stated.
+  reconciliation: accuracy_weighted
+  weight_metric: balanced_accuracy
+  # A modality that cannot beat chance on held-out subjects contributes variance
+  # and no signal. Zero, not a floor.
+  drop_below_chance: true
+  weight_floor: 0.0
+
+  base_learner:
+    fmri: logistic          # ~5 ROI features; a regularised linear problem
+    eeg: logistic
+    face: logistic          # high-dimensional embeddings; heavily regularised
+    behavior: gradient_boosting   # tabular, mixed monotone effects
+
+  n_bags:
+    fmri: 25
+    eeg: 25
+    face: 40                # noisier and higher-dimensional; more bags help
+    behavior: 25
+
+  max_samples: 0.8          # <1.0 decorrelates the bags
+  max_features: 1.0
+
+evaluation:
+  n_splits_outer: 5
+  n_splits_inner: 4
+  n_bootstrap: 2000
+  n_permutations: 1000
+
+  # regression for a continuous market outcome (view counts, funding totals),
+  # classification for a binary one (funded / not funded)
+  forecast_task: regression
+  forecast_splits: 5
+  # trimmed_mean resists a single subject's artefact moving an item's group
+  # score; worth switching to it once n per stimulus is above ~5
+  aggregate_statistic: mean

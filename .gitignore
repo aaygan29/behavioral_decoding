@@ -1,0 +1,63 @@
+# Data. Nothing under data/ is committed except the directory structure.
+# Neuroimaging files are large and often carry participant identifiers.
+data/**
+!data/**/.gitkeep
+!data/README.md
+
+# Results and run records
+results/
+outputs/
+*.nii
+*.nii.gz
+*.fif
+*.edf
+*.bdf
+*.set
+*.fdt
+*.mp4
+*.avi
+*.mov
+
+# Model checkpoints and caches
+*.pt
+*.pth
+*.ckpt
+*.joblib
+*.pkl
+.cache/
+.huggingface/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+
+# Testing and tooling
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Secrets. Never commit API keys for data platforms.
+.env
+.env.*
+!.env.example
