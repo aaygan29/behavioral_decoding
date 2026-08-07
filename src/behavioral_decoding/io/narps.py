@@ -310,6 +310,154 @@ class NARPSLoader:
             BEHAVIOR: self.behavior_block(events, subject_id),
         }
 
+    # -- BIDS load: discover files and delegate extraction to FMRILoader ----
+
+    def load(
+        self,
+        subject_dir: str,
+        bold_dir: Optional[str] = None,
+        confounds_dir: Optional[str] = None,
+        rois: Optional[Dict[str, Tuple[float, float, float]]] = None,
+        radius_mm: float = 6.0,
+        onset_shift_s: float = 4.0,
+        window_s: float = 4.0,
+        space: str = "MNI152NLin2009cAsym",
+    ) -> Dict[str, ModalityBlock]:
+        """Load one subject from BIDS, extracting ROI features via FMRILoader.
+
+        Parameters
+        ----------
+        subject_dir:
+            The subject's directory holding ``func/*_events.tsv``.
+        bold_dir:
+            Directory holding the preprocessed BOLD, if separate from
+            ``subject_dir`` (e.g. an fMRIPrep derivatives tree). Defaults to
+            ``subject_dir``.
+        confounds_dir:
+            Directory holding ``*_desc-confounds_timeseries.tsv``. Defaults to
+            ``bold_dir``. Confounds are strongly recommended; see the class
+            docstring and ``docs/narps.md`` trap 4.
+        space:
+            The template label to match in preprocessed BOLD filenames.
+
+        Returns
+        -------
+        ``{"fmri": block, "behavior": block}`` with all runs concatenated.
+
+        Notes
+        -----
+        Requires nilearn (via :meth:`FMRILoader.load`). Discovers runs by
+        globbing events files, matches each to its BOLD and confounds by run
+        label, and refuses to proceed if the counts disagree, because a
+        silently-dropped run misaligns trials against BOLD.
+        """
+        from .fmri import DEFAULT_ROIS, FMRILoader
+
+        subject_path = Path(subject_dir)
+        bold_path = Path(bold_dir) if bold_dir else subject_path
+        confounds_path = Path(confounds_dir) if confounds_dir else bold_path
+
+        subject_id = _subject_from_dir(subject_path)
+
+        event_files = sorted((subject_path / "func").glob("*_task-MGT_*_events.tsv"))
+        if not event_files:
+            # Some trees keep events beside the subject dir rather than in func/.
+            event_files = sorted(subject_path.glob("**/*_task-MGT_*_events.tsv"))
+        if not event_files:
+            raise NARPSFormatError(
+                f"no *_task-MGT_*_events.tsv found under {subject_path}. NARPS "
+                "downloads nothing; point this at a local ds001734 tree."
+            )
+
+        parsed_runs: List[Any] = []
+        func_paths: List[str] = []
+        confounds: List[Optional[str]] = []
+        run_subjects: List[str] = []
+
+        for ev_file in event_files:
+            run = _run_label(ev_file.name)
+            bold = _find_bold(bold_path, subject_id, run, space)
+            if bold is None:
+                logger.warning(
+                    "NARPS: no preprocessed BOLD found for %s run %s in space %s; "
+                    "skipping this run",
+                    subject_id,
+                    run,
+                    space,
+                )
+                continue
+            parsed = parse_events(ev_file)
+            parsed_runs.append(parsed)
+            func_paths.append(str(bold))
+            confounds.append(_find_confounds(confounds_path, subject_id, run))
+            run_subjects.append(subject_id)
+
+        if not func_paths:
+            raise NARPSFormatError(
+                f"found events for {subject_id} but no matching BOLD in space "
+                f"{space!r} under {bold_path}. Check the derivatives path and space."
+            )
+
+        loader = FMRILoader(
+            rois=rois or dict(DEFAULT_ROIS),
+            radius_mm=radius_mm,
+            standardize=self.standardize_fmri,
+        )
+        fmri_block = loader.load(
+            func_paths=func_paths,
+            events=parsed_runs,
+            subject_ids=run_subjects,
+            t_r=NARPS_TR,
+            onset_shift_s=onset_shift_s,
+            window_s=window_s,
+            confounds=confounds if any(c is not None for c in confounds) else None,
+        )
+
+        import pandas as pd
+
+        all_events = pd.concat(parsed_runs, ignore_index=True)
+        return {
+            "fmri": fmri_block,
+            BEHAVIOR: self.behavior_block(all_events, subject_id),
+        }
+
+
+def _subject_from_dir(path: Path) -> str:
+    match = re.search(r"(sub-[A-Za-z0-9]+)", path.name)
+    if match:
+        return match.group(1)
+    # Fall back to any sub-* under the directory.
+    for child in path.glob("sub-*"):
+        return child.name
+    raise NARPSFormatError(f"could not determine a subject id from {path}")
+
+
+def _run_label(filename: str) -> str:
+    match = re.search(r"run-([A-Za-z0-9]+)", filename)
+    return match.group(1) if match else "01"
+
+
+def _find_bold(root: Path, subject_id: str, run: str, space: str) -> Optional[Path]:
+    """Locate the preprocessed BOLD for a run, preferring the requested space."""
+    patterns = [
+        f"**/{subject_id}_task-MGT_run-{run}_space-{space}_desc-preproc_bold.nii.gz",
+        f"**/{subject_id}_task-MGT_run-{run}_space-{space}*_bold.nii.gz",
+        f"**/{subject_id}_task-MGT_run-{run}_bold.nii.gz",
+        f"**/{subject_id}_task-MGT_run-{run}*_bold.nii*",
+    ]
+    for pattern in patterns:
+        hits = sorted(root.glob(pattern))
+        if hits:
+            return hits[0]
+    return None
+
+
+def _find_confounds(root: Path, subject_id: str, run: str) -> Optional[str]:
+    hits = sorted(
+        root.glob(f"**/{subject_id}_task-MGT_run-{run}_desc-confounds_timeseries.tsv")
+    )
+    return str(hits[0]) if hits else None
+
 
 # ------------------------------------------------------------ aggregate outcome
 
