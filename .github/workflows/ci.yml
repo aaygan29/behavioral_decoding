@@ -28,7 +28,9 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # [fmri] pulls nilearn + nibabel so the NARPS BIDS load path and its
+          # demo are exercised in CI rather than skipped.
+          pip install -e ".[dev,fmri]"
 
       - name: Lint
         run: ruff check src tests scripts
@@ -46,3 +48,10 @@ jobs:
       # Fails if the loader miswires stimulus keys or the asymmetry features.
       - name: DEAP-format recovery check
         run: python scripts/run_deap.py --demo
+
+      # Same check on the real NARPS BIDS format (synthetic fixture, no
+      # download). Fails if the loader miswires events, ROI extraction, or
+      # confounds. Honest claim only: fMRI predicts accept above chance, no
+      # brain-beats-behaviour assertion (gambles favour the economic baseline).
+      - name: NARPS-format recovery check
+        run: python scripts/run_narps.py --demo

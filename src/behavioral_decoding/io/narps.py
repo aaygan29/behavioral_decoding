@@ -351,6 +351,36 @@ class NARPSLoader:
         label, and refuses to proceed if the counts disagree, because a
         silently-dropped run misaligns trials against BOLD.
         """
+        blocks, _ = self.load_with_events(
+            subject_dir,
+            bold_dir=bold_dir,
+            confounds_dir=confounds_dir,
+            rois=rois,
+            radius_mm=radius_mm,
+            onset_shift_s=onset_shift_s,
+            window_s=window_s,
+            space=space,
+        )
+        return blocks
+
+    def load_with_events(
+        self,
+        subject_dir: str,
+        bold_dir: Optional[str] = None,
+        confounds_dir: Optional[str] = None,
+        rois: Optional[Dict[str, Tuple[float, float, float]]] = None,
+        radius_mm: float = 6.0,
+        onset_shift_s: float = 4.0,
+        window_s: float = 4.0,
+        space: str = "MNI152NLin2009cAsym",
+    ) -> Tuple[Dict[str, ModalityBlock], Any]:
+        """As :meth:`load`, but also return the concatenated parsed events.
+
+        ``load_narps`` needs the events to build the accept labels and the
+        aggregate acceptance rate, row-aligned with the blocks. The blocks and
+        the returned events share row order (run-then-trial), so
+        ``events["accept"]`` lines up with the block rows.
+        """
         from .fmri import DEFAULT_ROIS, FMRILoader
 
         subject_path = Path(subject_dir)
@@ -416,10 +446,11 @@ class NARPSLoader:
         import pandas as pd
 
         all_events = pd.concat(parsed_runs, ignore_index=True)
-        return {
+        blocks = {
             "fmri": fmri_block,
             BEHAVIOR: self.behavior_block(all_events, subject_id),
         }
+        return blocks, all_events
 
 
 def _subject_from_dir(path: Path) -> str:
@@ -509,3 +540,157 @@ def acceptance_rate_by_gamble(
         ),
     }
     return y_aggregate, provenance
+
+
+# ------------------------------------------------------------- orchestration
+
+
+def load_narps(
+    root: str,
+    derivatives: Optional[str] = None,
+    group: Optional[str] = None,
+    subjects: Optional[Sequence[str]] = None,
+    space: str = "MNI152NLin2009cAsym",
+    loader: Optional[NARPSLoader] = None,
+    with_aggregate: bool = True,
+    min_subjects_per_gamble: int = 5,
+    onset_shift_s: float = 4.0,
+    window_s: float = 4.0,
+):
+    """Load NARPS into a :class:`MultimodalDataset`.
+
+    Individual level: one row per trial, ``y_individual`` is accept (1) vs
+    reject (0), and cross-validation groups by subject. This is the primary,
+    honest use of NARPS: validating that NAcc/vmPFC/AIns betas predict choice.
+
+    Aggregate level: because the stimulus key is the gamble ``(gain, loss)``, the
+    forecasting arm pools trials by gamble across subjects and can forecast the
+    population acceptance rate. On by default, but read ``docs/narps.md`` first:
+    the economic baseline dominates this arm by construction, so a
+    behaviour-beats-brain result here is expected and correct, not a failure.
+
+    Parameters
+    ----------
+    root:
+        BIDS root of ds001734 (holds ``participants.tsv`` and ``sub-*`` dirs).
+    derivatives:
+        fMRIPrep derivatives root, if BOLD lives there rather than in ``root``.
+    group:
+        Restrict to one condition (``"equalIndifference"`` or ``"equalRange"``).
+        The two groups saw different gamble matrices, so pooling them mixes
+        stimulus spaces; loading one group at a time is the safe default for the
+        aggregate arm, and a warning fires if you pool.
+
+    Notes
+    -----
+    Requires nilearn. The individual-level dataset is built by direct
+    construction rather than the ``(subject, stimulus)`` join, because a subject
+    sees each gamble more than once and that join requires unique keys. The
+    fMRI and behaviour blocks are row-aligned by shared event ordering, which is
+    what :class:`MultimodalDataset` actually needs.
+    """
+    import numpy as np
+
+    from .base import MultimodalDataset
+
+    active = loader or NARPSLoader()
+    root_path = Path(root)
+
+    participants_path = root_path / "participants.tsv"
+    group_of: Dict[str, str] = {}
+    if participants_path.exists():
+        table = load_participants(str(participants_path))
+        group_of = dict(zip(table["participant_id"], table["group"]))
+
+    subject_dirs = sorted(p for p in root_path.glob("sub-*") if p.is_dir())
+    if subjects is not None:
+        wanted = {s.lower() for s in subjects}
+        subject_dirs = [p for p in subject_dirs if p.name.lower() in wanted]
+    if group is not None:
+        if group not in GROUPS:
+            raise ValueError(f"group must be one of {GROUPS}; got {group!r}")
+        subject_dirs = [p for p in subject_dirs if group_of.get(p.name) == group]
+        if not subject_dirs:
+            raise ValueError(f"no subjects in group {group!r} under {root}")
+    elif with_aggregate and len(set(group_of.values())) > 1:
+        logger.warning(
+            "NARPS: pooling %s across groups for the aggregate arm mixes two "
+            "gamble matrices; pass group= to analyse within condition",
+            sorted(set(group_of.values())),
+        )
+
+    if not subject_dirs:
+        raise FileNotFoundError(
+            f"no sub-* directories found under {root}. NARPS downloads nothing; "
+            "point this at a local ds001734 tree."
+        )
+
+    fmri_blocks: List[ModalityBlock] = []
+    behavior_blocks: List[ModalityBlock] = []
+    events_by_subject: List[Any] = []
+
+    for subject_path in subject_dirs:
+        blocks, events = active.load_with_events(
+            str(subject_path),
+            bold_dir=derivatives,
+            confounds_dir=derivatives,
+            space=space,
+            onset_shift_s=onset_shift_s,
+            window_s=window_s,
+        )
+        fmri_blocks.append(blocks["fmri"])
+        behavior_blocks.append(blocks[BEHAVIOR])
+        events_by_subject.append(events)
+
+    merged = {
+        "fmri": _concat_blocks("fmri", fmri_blocks),
+        BEHAVIOR: _concat_blocks(BEHAVIOR, behavior_blocks),
+    }
+    y_individual = np.concatenate(
+        [ev["accept"].to_numpy(dtype=int) for ev in events_by_subject]
+    )
+    subject_ids = merged["fmri"].subject_ids
+    stimulus_ids = merged["fmri"].stimulus_ids
+
+    y_aggregate = None
+    aggregate_prov: Dict[str, Any] = {}
+    if with_aggregate:
+        y_aggregate, aggregate_prov = acceptance_rate_by_gamble(
+            events_by_subject, min_subjects=min_subjects_per_gamble
+        )
+
+    return MultimodalDataset(
+        blocks=merged,
+        y_individual=y_individual,
+        subject_ids=subject_ids,
+        stimulus_ids=stimulus_ids,
+        y_aggregate=y_aggregate,
+        metadata={
+            "dataset": "NARPS",
+            "synthetic": False,
+            "group": group or "all",
+            "n_subjects": len(subject_dirs),
+            "outcome": "accept_vs_reject",
+            "aggregate": aggregate_prov or "disabled",
+            "citation": "Botvinik-Nezer et al. (2019), Sci Data 6, 106, "
+            "doi:10.1038/s41597-019-0113-7; dataset ds001734",
+            "note": (
+                "individual-level fMRI validation; the aggregate arm is "
+                "behaviour-dominated by construction. See docs/narps.md."
+            ),
+        },
+    )
+
+
+def _concat_blocks(name: str, blocks: Sequence[ModalityBlock]) -> ModalityBlock:
+    """Stack per-subject blocks into one, preserving keys and provenance."""
+    import numpy as np
+
+    return ModalityBlock(
+        name=name,
+        X=np.vstack([b.X for b in blocks]),
+        subject_ids=np.concatenate([b.subject_ids for b in blocks]),
+        stimulus_ids=np.concatenate([b.stimulus_ids for b in blocks]),
+        feature_names=list(blocks[0].feature_names or []),
+        provenance=dict(blocks[0].provenance),
+    )
