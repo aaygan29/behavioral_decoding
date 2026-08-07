@@ -41,3 +41,8 @@ jobs:
       # as a broken pipeline, not a flaky demo.
       - name: Ground-truth recovery check
         run: python scripts/run_demo.py --quick
+
+      # Same check on the real DEAP file format (synthetic fixture, no download).
+      # Fails if the loader miswires stimulus keys or the asymmetry features.
+      - name: DEAP-format recovery check
+        run: python scripts/run_deap.py --demo

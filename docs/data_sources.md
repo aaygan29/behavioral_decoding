@@ -149,13 +149,17 @@ institution's ethics approval covers linking lab data to public platform data.
 
 ## Suggested sequence
 
-1. **DEAP or MAHNOB-HCI** to get EEG + face + behaviour running end to end
-   against real recordings. Validates three of four loaders and the whole
-   ensemble path. No fMRI, no market outcome, but a real result.
+1. **DEAP** to get EEG + peripheral + behaviour running end to end against real
+   recordings. **The loader for this is built** (`io/deap.py`,
+   [`docs/deap.md`](deap.md)); it needs only the EULA'd download. DEAP's YouTube
+   stimuli also give a route to a real aggregate outcome via view counts
+   (`io/deap_market.py`), so it can exercise *both* levels, not just the
+   individual one. Validates the EEG and behaviour paths and the whole ensemble.
 2. **NARPS `ds001734`** to validate the fMRI loader and ROI extraction on real
    BIDS data with a reward task and a decent sample.
-3. **A market-linked stimulus set** (Kiva or Kickstarter items) for the
-   aggregate arm. This is the step that requires collecting your own scans, and
-   it is the one that produces the novel result.
+3. **A market-linked stimulus set** (Kiva or Kickstarter items) for a
+   purpose-built aggregate arm. This is the step that requires collecting your
+   own scans, and it is the one that produces the fully novel result.
 
-Steps 1 and 2 are parallelisable and neither depends on the other.
+Steps 1 and 2 are parallelisable and neither depends on the other. Step 1 is the
+one with a working loader today.
