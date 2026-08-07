@@ -22,8 +22,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from ..utils.logging import get_logger
 from ..utils.progress import progress
 from .base import FMRI, BaseLoader, ModalityBlock
+
+logger = get_logger(__name__)
 
 # name -> (x, y, z) MNI centre in mm
 DEFAULT_ROIS: Dict[str, Tuple[float, float, float]] = {
@@ -91,6 +94,7 @@ class FMRILoader(BaseLoader):
         onset_shift_s: float = 4.0,
         window_s: float = 4.0,
         mask_img: Optional[object] = None,
+        confounds: Optional[Sequence[object]] = None,
     ) -> ModalityBlock:
         """Extract trial-wise ROI means from NIfTI runs.
 
@@ -112,6 +116,13 @@ class FMRILoader(BaseLoader):
             replaced then.
         window_s:
             Length of the averaging window after the shift.
+        confounds:
+            Optional per-run nuisance regressors (one entry per ``func_paths``
+            item: a path to a confounds table, a DataFrame, or an array), passed
+            to the masker so motion and physiological components are regressed
+            out of the ROI timeseries. Strongly recommended for task fMRI, where
+            head motion correlates with events; omitting it is allowed and
+            warned about, not silently fine.
 
         Notes
         -----
@@ -143,11 +154,24 @@ class FMRILoader(BaseLoader):
         subj_out: List[object] = []
         stim_out: List[object] = []
 
+        if confounds is None:
+            logger.warning(
+                "FMRILoader.load: no confounds supplied. For task fMRI this is a "
+                "real omission: head motion correlates with events and with "
+                "individual differences. Pass the fMRIPrep confounds table."
+            )
+        elif len(confounds) != len(func_paths):
+            raise ValueError(
+                f"confounds has {len(confounds)} entries but there are "
+                f"{len(func_paths)} runs; supply one per run"
+            )
+
         n_runs = len(func_paths)
         for run_idx, func_path in enumerate(
             progress(func_paths, desc="fMRI runs", total=n_runs)
         ):
-            ts = masker.fit_transform(func_path)  # (n_volumes, n_rois)
+            run_confound = confounds[run_idx] if confounds is not None else None
+            ts = masker.fit_transform(func_path, confounds=run_confound)
             ev = events[run_idx]
             onsets = np.asarray(ev["onset"], dtype=float)
             stims = np.asarray(ev["stimulus_id"])
@@ -175,6 +199,7 @@ class FMRILoader(BaseLoader):
                 onset_shift_s=onset_shift_s,
                 window_s=window_s,
                 extraction="peak_window_mean",
+                confounds_regressed=confounds is not None,
                 caveat="not a GLM; replace with first-level modelling before reporting",
             ),
         )
