@@ -24,10 +24,17 @@ baselines that a claim like it requires. Full citations, with DOIs, in
 
 ## Status
 
-Framework and validation harness, working end to end on synthetic data.
-**No real data is wired in yet.** The loaders have BIDS, MNE, and OpenCV code
-paths that have not been run against real recordings; expect to fix things. See
-[`docs/design.md`](docs/design.md) §12 for the full list of what is not built.
+Framework and validation harness, working end to end on synthetic data. The
+**DEAP loader is built and tested** against the real file format (`io/deap.py`,
+[`docs/deap.md`](docs/deap.md)); it needs only the licensed download to run on
+real recordings, and DEAP's YouTube stimuli give it a real aggregate outcome via
+view counts. The fMRI/MNE/OpenCV loader paths still have not been run against
+real recordings; expect to fix things. See [`docs/design.md`](docs/design.md)
+§12 for the full list of what is not built.
+
+```bash
+python scripts/run_deap.py --demo   # whole DEAP path on a synthetic fixture, no download
+```
 
 ---
 
