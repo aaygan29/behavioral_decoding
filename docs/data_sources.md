@@ -156,7 +156,12 @@ institution's ethics approval covers linking lab data to public platform data.
    (`io/deap_market.py`), so it can exercise *both* levels, not just the
    individual one. Validates the EEG and behaviour paths and the whole ensemble.
 2. **NARPS `ds001734`** to validate the fMRI loader and ROI extraction on real
-   BIDS data with a reward task and a decent sample.
+   BIDS data with a reward task and a decent sample. **The loader for this is
+   built** (`io/narps.py`, [`docs/narps.md`](narps.md)); it reuses `FMRILoader`'s
+   NAcc/vmPFC/AIns sphere extraction and needs only the OpenNeuro download (no
+   licence). Note NARPS is an *individual-level* validation: on gambles the
+   economic baseline dominates the aggregate arm by construction, so it is the
+   fMRI plumbing check, not a brain-beats-behaviour demonstration.
 3. **A market-linked stimulus set** (Kiva or Kickstarter items) for a
    purpose-built aggregate arm. This is the step that requires collecting your
    own scans, and it is the one that produces the fully novel result.
