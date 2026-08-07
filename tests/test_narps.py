@@ -21,6 +21,7 @@ from behavioral_decoding.io.narps import (
     acceptance_rate_by_gamble,
     expected_value,
     gamble_key,
+    load_narps,
     load_participants,
     parse_events,
 )
@@ -224,3 +225,54 @@ def test_synthetic_events_helper_is_parseable():
     assert set(parsed["participant_response"]) <= set(
         ACCEPT_RESPONSES + ("strongly_reject", "weakly_reject")
     )
+
+
+# --------------------------------------------------------- load_narps (nilearn)
+
+
+def test_load_narps_builds_individual_dataset(tmp_path):
+    pytest.importorskip("nilearn")
+    pytest.importorskip("nibabel")
+    write_narps_fixture(str(tmp_path), n_subjects=6, n_runs=2, trials_per_run=12, seed=0)
+
+    ds = load_narps(str(tmp_path), group="equalRange")
+    assert set(ds.modalities) == {"fmri", "behavior"}
+    assert not ds.metadata["synthetic"]
+    assert ds.metadata["dataset"] == "NARPS"
+    assert ds.metadata["group"] == "equalRange"
+    # Binary accept outcome.
+    assert set(np.unique(ds.y_individual)) <= {0, 1}
+    # Aggregate keyed by gamble.
+    if ds.y_aggregate:
+        assert all(k.startswith("g") and "_l" in k for k in ds.y_aggregate)
+
+
+def test_load_narps_group_filter_selects_subjects(tmp_path):
+    pytest.importorskip("nilearn")
+    pytest.importorskip("nibabel")
+    write_narps_fixture(str(tmp_path), n_subjects=6, n_runs=1, trials_per_run=10, seed=0)
+
+    ei = load_narps(str(tmp_path), group="equalIndifference", with_aggregate=False)
+    er = load_narps(str(tmp_path), group="equalRange", with_aggregate=False)
+    # Fixture alternates groups by subject parity, so 3 and 3.
+    assert ei.n_subjects == 3
+    assert er.n_subjects == 3
+    assert set(ei.subject_ids).isdisjoint(set(er.subject_ids))
+
+
+def test_load_narps_recovers_reward_signal_individually(tmp_path):
+    """The planted NAcc/MPFC-EV signal should let fMRI predict accept above chance.
+
+    This is the NARPS positive control: the honest, recoverable claim. It does
+    not assert brain beats behaviour, because on gambles it should not.
+    """
+    pytest.importorskip("nilearn")
+    pytest.importorskip("nibabel")
+    from behavioral_decoding.evaluation.neuroforecast import cross_validate_ensemble
+
+    write_narps_fixture(str(tmp_path), n_subjects=8, n_runs=2, trials_per_run=16, seed=0)
+    ds = load_narps(str(tmp_path), group="equalRange")
+    result = cross_validate_ensemble(ds, n_splits_outer=3, n_splits_inner=2, seed=0)
+
+    fmri = result["per_modality_pooled"]["fmri"]["balanced_accuracy"]
+    assert fmri > 0.55, f"fMRI did not predict accept above chance (balacc={fmri:.3f})"

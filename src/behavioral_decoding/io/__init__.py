@@ -31,6 +31,7 @@ from .narps import (
     NARPSLoader,
     acceptance_rate_by_gamble,
     gamble_key,
+    load_narps,
     parse_events,
 )
 from .registry import get_loader, register_loader
@@ -63,6 +64,7 @@ __all__ = [
     "gamble_key",
     "get_loader",
     "load_deap",
+    "load_narps",
     "parse_events",
     "register_loader",
 ]
