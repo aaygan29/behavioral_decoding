@@ -25,6 +25,14 @@ from .deap import (
 from .eeg import EEGLoader
 from .face import FaceLoader
 from .fmri import FMRILoader
+from .narps import (
+    NARPS_TR,
+    NARPSFormatError,
+    NARPSLoader,
+    acceptance_rate_by_gamble,
+    gamble_key,
+    parse_events,
+)
 from .registry import get_loader, register_loader
 
 __all__ = [
@@ -37,6 +45,7 @@ __all__ = [
     "FACE",
     "FMRI",
     "KNOWN_MODALITIES",
+    "NARPS_TR",
     "PERIPHERAL",
     "BaseLoader",
     "BehaviorLoader",
@@ -47,8 +56,13 @@ __all__ = [
     "FMRILoader",
     "ModalityBlock",
     "MultimodalDataset",
+    "NARPSFormatError",
+    "NARPSLoader",
+    "acceptance_rate_by_gamble",
     "binarise_ratings",
+    "gamble_key",
     "get_loader",
     "load_deap",
+    "parse_events",
     "register_loader",
 ]
