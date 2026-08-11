@@ -82,6 +82,39 @@ def make_base_learner(
         params = {"n_estimators": 200, "max_depth": 3, "random_state": seed}
         params.update(kwargs)
         return GradientBoostingClassifier(**params)
+    if kind == "elasticnet":
+        # L1 + L2 logistic. The L2 part shares weight across correlated features
+        # (NAcc_L / NAcc_R move together; band-power columns are collinear),
+        # while the L1 part still drops dead ones. This is usually a better fit
+        # than plain L2 for the fMRI and EEG blocks, and than plain L1 for the
+        # high-dimensional face block. Needs the saga solver, and needs scaled
+        # input, which the pipeline's StandardScaler provides.
+        params = {
+            "penalty": "elasticnet",
+            "solver": "saga",
+            "l1_ratio": 0.5,
+            "C": 1.0,
+            "max_iter": 5000,
+            "tol": 1e-3,
+            "class_weight": class_weight,
+            "random_state": seed,
+        }
+        params.update(kwargs)
+        return LogisticRegression(**params)
+    if kind == "linear_svm":
+        # Linear-kernel SVM, a strong baseline for high-dimensional embeddings
+        # (the face block). probability=True adds Platt scaling via an internal
+        # CV so the ensemble can read predict_proba; that calibration costs time
+        # but the SMOTE step upstream keeps the classes balanced enough for it.
+        params = {
+            "kernel": "linear",
+            "C": 1.0,
+            "probability": True,
+            "class_weight": class_weight,
+            "random_state": seed,
+        }
+        params.update(kwargs)
+        return SVC(**params)
     if kind == "svm":
         params = {
             "kernel": "rbf",
@@ -93,8 +126,8 @@ def make_base_learner(
         params.update(kwargs)
         return SVC(**params)
     raise ValueError(
-        f"unknown base learner {kind!r}; choose from logistic, random_forest, "
-        "gradient_boosting, svm"
+        f"unknown base learner {kind!r}; choose from logistic, elasticnet, "
+        "linear_svm, random_forest, gradient_boosting, svm"
     )
 
 
