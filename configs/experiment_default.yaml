@@ -42,9 +42,12 @@ model:
   weight_floor: 0.0
 
   base_learner:
-    fmri: logistic          # ~5 ROI features; a regularised linear problem
-    eeg: logistic
-    face: logistic          # high-dimensional embeddings; heavily regularised
+    # elasticnet (L1+L2 logistic) shares weight across correlated features and
+    # still drops dead ones; see docs/estimators.md. linear_svm is a supported
+    # face alternative (comparable, slower).
+    fmri: elasticnet        # correlated ROI betas (NAcc_L/NAcc_R)
+    eeg: elasticnet         # collinear band-power columns
+    face: elasticnet        # high-dimensional embeddings; linear_svm also fine
     behavior: gradient_boosting   # tabular, mixed monotone effects
 
   n_bags:

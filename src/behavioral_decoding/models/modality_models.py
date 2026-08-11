@@ -37,10 +37,17 @@ from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Elastic-net logistic is the default for every dense-feature neural/embedding
+# block: it shares weight across correlated features and still drops dead ones,
+# which suits collinear ROI betas, collinear band-power columns, and
+# high-dimensional face embeddings alike. `linear_svm` is a supported
+# alternative for the face block (comparable accuracy, slower because of the
+# probability calibration). Behaviour stays on gradient boosting for its mixed,
+# monotone, low-dimensional features. See docs/estimators.md.
 DEFAULT_BASE_LEARNER: Dict[str, str] = {
-    FMRI: "logistic",
-    EEG: "logistic",
-    FACE: "logistic",
+    FMRI: "elasticnet",
+    EEG: "elasticnet",
+    FACE: "elasticnet",
     BEHAVIOR: "gradient_boosting",
 }
 
