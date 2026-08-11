@@ -32,9 +32,9 @@ model:
   drop_below_chance: true
   weight_floor: 0.0
   base_learner:
-    fmri: logistic
-    eeg: logistic
-    face: logistic
+    fmri: elasticnet
+    eeg: elasticnet
+    face: elasticnet
     behavior: gradient_boosting
   n_bags:
     fmri: 25
