@@ -24,16 +24,26 @@ baselines that a claim like it requires. Full citations, with DOIs, in
 
 ## Status
 
-Framework and validation harness, working end to end on synthetic data. The
-**DEAP loader is built and tested** against the real file format (`io/deap.py`,
-[`docs/deap.md`](docs/deap.md)); it needs only the licensed download to run on
-real recordings, and DEAP's YouTube stimuli give it a real aggregate outcome via
-view counts. The fMRI/MNE/OpenCV loader paths still have not been run against
-real recordings; expect to fix things. See [`docs/design.md`](docs/design.md)
-§12 for the full list of what is not built.
+Framework and validation harness, working end to end on synthetic data. Two
+real-dataset loaders are built and tested against their actual file formats:
+
+- **DEAP** (`io/deap.py`, [`docs/deap.md`](docs/deap.md)): EEG + peripheral +
+  behaviour; needs the licensed download; YouTube stimuli give it a real
+  aggregate outcome via view counts.
+- **NARPS ds001734** (`io/narps.py`, [`docs/narps.md`](docs/narps.md)): the
+  fMRI mixed-gambles reward task; reuses `FMRILoader`'s NAcc/vmPFC/AIns sphere
+  extraction; public OpenNeuro download, no licence. NARPS is an
+  *individual-level* fMRI validation: on gambles the economic baseline dominates
+  the aggregate arm by construction, so it is the fMRI plumbing check, not a
+  brain-beats-behaviour demonstration.
+
+The MNE/OpenCV loader paths still have not been run against real recordings;
+expect to fix things. See [`docs/design.md`](docs/design.md) §12 for the full
+list of what is not built.
 
 ```bash
-python scripts/run_deap.py --demo   # whole DEAP path on a synthetic fixture, no download
+python scripts/run_deap.py --demo    # whole DEAP path on a synthetic fixture, no download
+python scripts/run_narps.py --demo   # whole NARPS BIDS path on a synthetic fixture (needs .[fmri])
 ```
 
 ---
