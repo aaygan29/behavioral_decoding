@@ -217,6 +217,9 @@ src/behavioral_decoding/
 docs/
 ├── literature.md    the neuroforecasting canon, with verified DOIs
 ├── design.md        each decision, its rejected alternative, and what would falsify it
+├── estimators.md    per-modality base learners, and why mixed-effects/Riemannian need their own path
+├── deap.md          DEAP loader: format traps, circularity, the market route
+├── narps.md         NARPS loader: format, the individual-vs-aggregate honesty point
 └── data_sources.md  candidate datasets per modality, and the gap between them
 ```
 
