@@ -60,13 +60,61 @@ model:
   sizes, but available.
 - **`random_forest`**, **`gradient_boosting`**: tree ensembles for the tabular
   behaviour block.
+- **`riemann`**: logistic regression in the log-Euclidean tangent space of EEG
+  channel covariances. Needs covariance features, not band power. Detailed in
+  its own section below.
 
-## Two stronger models, and why they are not drop-ins
+## Riemannian tangent-space classification for EEG (implemented)
 
-Both were suggested and both are genuinely better *for the right setup*. Neither
-fits the flat-feature, subject-grouped-CV pipeline without a dedicated path, and
-bolting them in naively would produce numbers that look principled and are not.
-Recorded here so the decision is deliberate, not forgotten.
+`riemann` is a real estimator now, not a base-learner swap: it is logistic
+regression in the **log-Euclidean tangent space** of the EEG channel-covariance
+manifold. Use it like any other learner, but feed it covariance features:
+
+```python
+from behavioral_decoding.io.eeg import EEGLoader
+
+# Covariance mode is mutually exclusive with band power / ERP.
+block = EEGLoader(
+    include_bandpower=False, include_erp=False, include_covariance=True
+).from_arrays(epochs, sfreq, times, subject_ids, stimulus_ids)
+```
+
+```yaml
+model:
+  base_learner:
+    eeg: riemann      # expects covariance features, not band power
+```
+
+How it stays correct inside the existing pipeline:
+
+```
+BaggingClassifier
+  └── Pipeline(RiemannianTangentSpace -> StandardScaler -> SMOTE -> logistic)
+```
+
+The tangent projection goes *first*, so scaling and SMOTE only ever touch the
+flat Euclidean tangent vectors, never the raw covariance entries. The reference
+point (the log-Euclidean mean) is computed in `fit` on training data only, inside
+each fold and each bag, so it is leakage-safe. Rank-deficient covariances from
+short epochs are regularised toward a scaled identity before the matrix log, and
+`max_features` is forced to 1.0 because a column subset of a flattened covariance
+is not a covariance.
+
+Two honest caveats:
+
+- **On clean data the tangent map does not beat a plain logistic**, because the
+  raw covariance entries are already linearly separable there. Its advantage
+  shows on ill-conditioned real EEG, which is the regime the method was built
+  for. The tests assert the path recovers covariance structure *above chance*,
+  not that it beats logistic on synthetic data, which would be cherry-picking.
+- This is the **log-Euclidean** metric (closed-form, scipy-only). `pyriemann`'s
+  affine-invariant metric, which iterates to a geometric mean and whitens by it,
+  is a further upgrade; swapping the reference-point computation for it is the
+  natural next step if a real EEG dataset warrants it.
+
+## The other suggested model, and why it is not a drop-in
+
+Recorded so the decision is deliberate, not forgotten.
 
 ### Hierarchical / mixed-effects model (fMRI)
 
@@ -92,34 +140,16 @@ random-effect term and predict from fixed effects only. Wrap it to expose
 `predict_proba`, and report it next to elastic-net rather than replacing it. Do
 not expect a cross-subject gain.
 
-### Riemannian methods (EEG)
-
-For EEG built from **channel covariance / connectivity** features, Riemannian
-tangent-space classification is a real upgrade over band power: it respects the
-geometry of the space of covariance matrices instead of treating their entries
-as independent numbers. But two steps in this pipeline are wrong for covariance
-features:
-
-- **StandardScaler** z-scores each covariance entry independently, which
-  destroys the positive-definite structure the Riemannian method depends on.
-- **SMOTE** interpolates along straight lines between covariance vectors. The
-  geodesic between two covariance matrices is *not* a straight line in entry
-  space, so the synthetic minority points are off-manifold.
-
-A correct Riemannian EEG arm therefore needs its own pipeline: emit per-trial
-covariance matrices (not band power), project to the tangent space at the
-Riemannian mean of the *training* fold, and only then standardise / resample /
-classify in that tangent space. That is a separate feature family and a separate
-pipeline, best added as a distinct `riemann` path (with `pyriemann`, or a
-scipy-`logm` tangent map for a dependency-free version) rather than a base
-learner slotted into the existing flat pipeline. It is a good next step; it is
-not a one-line default change, and pretending it were would corrupt the manifold
-structure it exists to exploit.
+(The other model previously in this section, Riemannian tangent-space
+classification for EEG, is now implemented; see the section above.)
 
 ## What did change
 
 `elasticnet` and `linear_svm` were added to the learner factory and the
-dense-block defaults moved from plain logistic to elastic-net. Everything else
-about the pipeline (bagging, in-fold SMOTE, out-of-fold weighting, subject-
-grouped CV) is unchanged, so these are honest swaps of the base estimator, not a
-change to how anything is evaluated.
+dense-block defaults moved from plain logistic to elastic-net. The `riemann`
+path was then added for EEG: a covariance feature family in the loader and a
+log-Euclidean tangent-space transformer prepended to the pipeline. Everything
+else about the pipeline (bagging, in-fold SMOTE, out-of-fold weighting, subject-
+grouped CV) is unchanged. The dense-block swaps are honest swaps of the base
+estimator; the Riemannian path adds a manifold-correct front-end without
+changing how anything is evaluated.
