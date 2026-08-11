@@ -102,8 +102,55 @@ def erp_windows(
     return np.concatenate(out, axis=1), names
 
 
+def channel_covariance(epochs: np.ndarray) -> Tuple[np.ndarray, List[str]]:
+    """Per-epoch inter-channel covariance, flattened for the Riemannian path.
+
+    Parameters
+    ----------
+    epochs:
+        Array of shape ``(n_epochs, n_channels, n_times)``.
+
+    Returns
+    -------
+    (features, names)
+        ``features`` has shape ``(n_epochs, n_channels*(n_channels+1)/2)``, the
+        flattened upper triangle of each covariance with the same ``sqrt(2)``
+        off-diagonal convention the tangent-space transformer expects (they share
+        :func:`~behavioral_decoding.models.riemann.flatten_spd`, so the loader's
+        output and the transformer's input cannot drift apart).
+
+    These features are meant to feed the ``riemann`` estimator, which projects
+    them to the log-Euclidean tangent space before any scaling or resampling.
+    Handing raw covariance entries to a plain logistic works but discards the
+    manifold structure; see ``docs/estimators.md``.
+    """
+    from ..models.riemann import flatten_spd
+
+    epochs = np.asarray(epochs, dtype=float)
+    n_epochs, n_channels, n_times = epochs.shape
+    if n_times < 2:
+        raise ValueError("covariance needs at least 2 samples per epoch")
+    mats = np.empty((n_epochs, n_channels, n_channels), dtype=float)
+    for i in range(n_epochs):
+        mats[i] = np.cov(epochs[i])
+    features = flatten_spd(mats)
+    rows, cols = np.triu_indices(n_channels)
+    names = [f"cov_ch{r:02d}_ch{c:02d}" for r, c in zip(rows, cols)]
+    return features, names
+
+
 class EEGLoader(BaseLoader):
-    """Turn epoched EEG into trial-by-feature rows."""
+    """Turn epoched EEG into trial-by-feature rows.
+
+    Two feature regimes, and they do not mix:
+
+    - **band power and ERP windows** (the default): flat spectral/temporal
+      features for the dense-block estimators (logistic, elastic-net).
+    - **covariance** (``include_covariance=True``): per-trial inter-channel
+      covariance for the ``riemann`` estimator. This is mutually exclusive with
+      the other two, because the Riemannian tangent map needs the covariance
+      matrix intact, not concatenated with unrelated columns.
+    """
 
     name = EEG
 
@@ -113,11 +160,20 @@ class EEGLoader(BaseLoader):
         windows: Optional[Sequence[Tuple[str, float, float]]] = None,
         include_bandpower: bool = True,
         include_erp: bool = True,
+        include_covariance: bool = False,
     ) -> None:
+        if include_covariance and (include_bandpower or include_erp):
+            raise ValueError(
+                "covariance features are mutually exclusive with band-power/ERP: "
+                "the Riemannian tangent map needs the covariance matrix intact, "
+                "not concatenated with other columns. Set include_bandpower=False "
+                "and include_erp=False when include_covariance=True."
+            )
         self.bands = dict(bands) if bands is not None else dict(DEFAULT_BANDS)
         self.windows = tuple(windows) if windows is not None else tuple(DEFAULT_ERP_WINDOWS)
         self.include_bandpower = include_bandpower
         self.include_erp = include_erp
+        self.include_covariance = include_covariance
 
     def from_arrays(
         self,
@@ -134,6 +190,24 @@ class EEGLoader(BaseLoader):
             raise ValueError(
                 f"expected (n_epochs, n_channels, n_times), got shape {epochs.shape}"
             )
+
+        if self.include_covariance:
+            feats, names = channel_covariance(epochs)
+            return ModalityBlock(
+                name=self.name,
+                X=feats,
+                subject_ids=np.asarray(subject_ids),
+                stimulus_ids=np.asarray(stimulus_ids),
+                feature_names=names,
+                provenance=self._provenance(
+                    source=source,
+                    sfreq=sfreq,
+                    feature_family="covariance",
+                    n_channels=epochs.shape[1],
+                    note="flattened inter-channel covariance for the riemann estimator",
+                ),
+            )
+
         parts: List[np.ndarray] = []
         names: List[str] = []
         if self.include_bandpower:
