@@ -243,6 +243,7 @@ def make_balanced_pipeline(
     k_neighbors: int = 5,
     scaler: bool = True,
     random_state: int = 0,
+    pre_steps=None,
 ):
     """Wrap ``estimator`` in a leakage-safe scale -> resample -> fit pipeline.
 
@@ -253,10 +254,19 @@ def make_balanced_pipeline(
     The resampling step is an :class:`AdaptiveOverSampler`, which resolves ``k``
     against whatever slice of data the fold or bag actually hands it.
 
+    ``pre_steps`` is an optional list of ``(name, transformer)`` inserted
+    *before* the scaler. It exists for feature spaces that must be mapped into a
+    flat Euclidean space before scaling and SMOTE are valid, the Riemannian
+    tangent projection being the motivating case: scaling and straight-line
+    interpolation are only meaningful once the covariance matrices have been
+    projected to the tangent space. Because the transformer is inside the
+    pipeline, it is fitted on training data only, inside each CV fold and each
+    bag.
+
     Falls back to a plain scikit-learn pipeline (scaler + estimator, no
     resampling) when imbalanced-learn is absent, and logs that it did.
     """
-    steps = []
+    steps = list(pre_steps) if pre_steps else []
     if scaler:
         from sklearn.preprocessing import StandardScaler
 

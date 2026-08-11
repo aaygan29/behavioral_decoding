@@ -187,20 +187,42 @@ def build_modality_model(
     if kind == "gradient_boosting":
         class_weight = None
 
-    estimator = make_base_learner(kind, class_weight=class_weight, seed=seed, **learner_kwargs)
+    # The Riemannian path is a logistic regression in the log-Euclidean tangent
+    # space: a tangent-projection transformer is prepended, and the classifier
+    # itself is plain logistic. It cannot subsample features per bag, because a
+    # column subset of a flattened covariance triangle is no longer a valid
+    # covariance, so max_features is forced to 1.0.
+    pre_steps = None
+    effective_max_features = max_features
+    if kind == "riemann":
+        from .riemann import RiemannianTangentSpace
+
+        pre_steps = [("tangent", RiemannianTangentSpace())]
+        estimator = make_base_learner("logistic", class_weight=class_weight, seed=seed)
+        if max_features != 1.0:
+            logger.warning(
+                "riemann[%s]: max_features forced to 1.0; a column subset of a "
+                "flattened covariance is not a covariance",
+                modality,
+            )
+            effective_max_features = 1.0
+    else:
+        estimator = make_base_learner(kind, class_weight=class_weight, seed=seed, **learner_kwargs)
+
     pipeline = make_balanced_pipeline(
         estimator,
         sampler=str(chosen_sampler),
         k_neighbors=int(chosen_k),
         scaler=True,
         random_state=seed,
+        pre_steps=pre_steps,
     )
 
     model = BaggingClassifier(
         estimator=pipeline,
         n_estimators=bags,
         max_samples=max_samples,
-        max_features=max_features,
+        max_features=effective_max_features,
         bootstrap=True,
         bootstrap_features=False,
         oob_score=False,
