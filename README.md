@@ -93,7 +93,7 @@ by `subject_id` and by `stimulus_id`.
 | Modality | Default features | Loader |
 |---|---|---|
 | fMRI | NAcc, MPFC, and anterior insula spheres, the anticipatory-affect ROIs from the neuroforecasting papers | `io/fmri.py` |
-| EEG | Per-epoch log band power (delta to gamma) plus early-frontal and late-parietal ERP windows | `io/eeg.py` |
+| EEG | Per-epoch log band power (delta to gamma) plus early-frontal and late-parietal ERP windows, or inter-channel covariance for the Riemannian path | `io/eeg.py` |
 | Face | Vision-transformer frame embeddings, or interpretable action-unit and landmark features | `io/face.py` |
 | Behaviour | Ratings, response times, derived choice features | `io/behavior.py` |
 
@@ -150,7 +150,30 @@ reconciliation: accuracy_weighted (weights from out-of-fold balanced_accuracy)
   eeg            0.4944     0.5185    0.2192   0.0000  (below chance, dropped)
 ```
 
-### 4. Vision transformers for the face arm
+### 4. Per-modality estimators
+
+Each modality's base learner is chosen for its feature structure, and is a
+one-line config change ([`docs/estimators.md`](docs/estimators.md)):
+
+- **fMRI, EEG, face**: `elasticnet` (L1+L2 logistic) by default. The L2 term
+  shares weight across correlated features (NAcc_L/NAcc_R, collinear band-power
+  columns, high-dimensional embeddings); the L1 term still drops dead ones.
+- **face**: `linear_svm` is a supported alternative (comparable, slower).
+- **behaviour**: `gradient_boosting` for its low-dimensional, mixed, monotone
+  features.
+- **EEG, Riemannian**: `riemann` classifies in the **log-Euclidean tangent
+  space** of the channel-covariance manifold. Much of EEG's signal is in
+  inter-channel covariance, which lives on the manifold of SPD matrices, not a
+  flat vector space, so the pipeline projects to the tangent space *first*:
+  `Pipeline(RiemannianTangentSpace → StandardScaler → SMOTE → logistic)`. Feed
+  it covariance features (`EEGLoader(include_covariance=True)`); the tangent
+  reference is computed on training data only, so it stays leakage-safe.
+
+Two learners the docs deliberately do **not** ship as drop-ins, with the honest
+reasons: mixed-effects (random intercepts do not transfer under subject-grouped
+CV) and, previously, Riemannian (now built, above).
+
+### 5. Vision transformers for the face arm
 
 `ViTEncoder` wraps a Hugging Face ViT for frame embedding. If torch and
 transformers are missing it falls back to a fixed random projection so the
@@ -158,7 +181,7 @@ pipeline stays runnable, and it says so: `backend="random_projection_fallback"`,
 `reportable: False` in provenance, and `assert_real_encoder()` raises. Call that
 method in any script that produces numbers you intend to report.
 
-### 5. Both outcome levels, evaluated separately
+### 6. Both outcome levels, evaluated separately
 
 `compare_forecast_arms` runs brain-only, behaviour-only, face-only, and combined
 arms against the market outcome, holding out whole stimuli:
@@ -209,7 +232,7 @@ src/behavioral_decoding/
 ├── io/              loaders, one per modality, plus the ModalityBlock contract
 ├── features/        ViT encoding, cross-modality alignment
 ├── balance/         SMOTE variants, adaptive resampling, strategy selection
-├── models/          per-modality bagged learners, ensemble reconciliation
+├── models/          per-modality bagged learners (incl. Riemannian tangent-space), ensemble reconciliation
 ├── evaluation/      grouped CV, metrics, aggregate forecasting
 ├── pipelines/       end-to-end run and run-record writing
 └── synthetic.py     ground-truth generator (the positive control)
@@ -217,7 +240,7 @@ src/behavioral_decoding/
 docs/
 ├── literature.md    the neuroforecasting canon, with verified DOIs
 ├── design.md        each decision, its rejected alternative, and what would falsify it
-├── estimators.md    per-modality base learners, and why mixed-effects/Riemannian need their own path
+├── estimators.md    per-modality base learners incl. the Riemannian EEG path; why mixed-effects is not a drop-in
 ├── deap.md          DEAP loader: format traps, circularity, the market route
 ├── narps.md         NARPS loader: format, the individual-vs-aggregate honesty point
 └── data_sources.md  candidate datasets per modality, and the gap between them
