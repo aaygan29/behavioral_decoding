@@ -3,7 +3,7 @@
 Multimodal decoding of **individual choice** and **aggregate market behaviour**
 from fMRI, EEG, facial video, and self-report.
 
-AIxBio Africa project. Aayush Gandhi and Gowthaam Gopalakrishnan.
+AIxBio Africa project. Aayush Gandhi and Gowthaam Gokulakrishnan.
 
 ---
 
