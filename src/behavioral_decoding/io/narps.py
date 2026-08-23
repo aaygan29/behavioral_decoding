@@ -212,10 +212,17 @@ class NARPSLoader:
 
     def __init__(
         self,
-        include_rt: bool = True,
+        include_rt: bool = False,
         include_expected_value: bool = True,
         standardize_fmri: bool = False,
     ) -> None:
+        # RT is OFF by default and should stay off for the accept/reject task.
+        # The response time is measured *after* the decision is made, so it is a
+        # consequence of the choice, not a cause available before it. Feeding it
+        # to a classifier of accept/reject leaks the outcome and inflates
+        # accuracy (fast, confident accepts vs slow, conflicted rejects are
+        # separable on RT alone). Turn it on only for an explicit RT/confidence
+        # analysis, never for the headline choice-prediction number.
         self.include_rt = include_rt
         self.include_expected_value = include_expected_value
         self.standardize_fmri = standardize_fmri
@@ -234,7 +241,9 @@ class NARPSLoader:
         comparator by design, not a strawman: acceptance is largely a function of
         gain and loss, so an economic model forecasts choice well. The neural
         arm has to beat this, and on the aggregate arm it usually will not (see
-        ``docs/narps.md``). ``accept`` is never a feature.
+        ``docs/narps.md``). ``accept`` is never a feature, and RT is off by
+        default (``include_rt=False``): it is recorded after the decision and
+        would leak the outcome into a predictor of that same outcome.
         """
         columns: List[np.ndarray] = [
             events["gain"].to_numpy(dtype=float),

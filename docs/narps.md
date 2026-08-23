@@ -55,7 +55,7 @@ onset   duration  gain  loss  RT     participant_response
 | stimulus key `stimulus_id` | the gamble, keyed by `(gain, loss)` |
 | aggregate outcome `y_aggregate` | population acceptance rate per gamble |
 | fMRI block | NAcc / vmPFC / AIns sphere betas per trial |
-| behaviour block | gain, loss, expected value, RT |
+| behaviour block | gain, loss, expected value (RT off by default, see below) |
 
 **Individual choice.** `strongly_accept` and `weakly_accept` collapse to accept
 (1); `strongly_reject` and `weakly_reject` to reject (0). `NoResp` trials are
@@ -100,16 +100,27 @@ pipeline running and wrong for a publishable estimate. Replace it with
 `nilearn.glm.first_level` before reporting. The loader records
 `extraction="peak_window_mean"` in provenance so this is never hidden.
 
-**4. Confounds must be regressed, and this loader does not do it for you.**
+**4. Confounds must be regressed, and the loader now cleans them for you.**
 Motion, framewise displacement, and the aCompCor components in the fMRIPrep
 `*_desc-confounds_timeseries.tsv` are not optional for a reward-ROI analysis:
 head motion correlates with task events and with individual differences. The
-loader accepts a confounds table and passes it to the masker; if you do not
-supply one, it warns.
+loader no longer passes the raw table to the masker: `io/confounds.py` selects an
+explicit nuisance set (default `motion12+physio`), fills the leading-row NaNs on
+the derivative and framewise-displacement columns, and drops non-numeric columns,
+recording what it kept and dropped in provenance. If you supply no confounds it
+still warns.
 
 **5. No-response trials and RT = 0.** `NoResp` rows carry `RT = 0`. Feeding that
 zero into an RT feature as if it were a fast response is wrong. The loader drops
 `NoResp` trials before building any block.
+
+**6. RT is a post-decision variable, so it is off by default.** Response time is
+recorded *after* the choice is made; it is a consequence of the decision, not a
+cue available before it. Including it as a feature when predicting accept/reject
+leaks the outcome (fast confident accepts vs slow conflicted rejects separate on
+RT alone) and inflates accuracy. `NARPSLoader(include_rt=False)` is the default;
+turn it on only for an explicit RT/confidence analysis, never for the headline
+choice-prediction number.
 
 ---
 

@@ -46,7 +46,7 @@ from ..evaluation.metrics import classification_report
 from ..io.base import ModalityBlock, MultimodalDataset
 from ..utils.logging import get_logger
 from ..utils.progress import progress
-from .modality_models import build_modality_model
+from .modality_models import build_modality_model, tune_modality_model
 
 logger = get_logger(__name__)
 
@@ -66,10 +66,25 @@ class MultimodalEnsemble(BaseEstimator, ClassifierMixin):
         drop_below_chance: bool = True,
         weight_floor: float = 0.0,
         chance_level: Optional[float] = None,
+        tune: bool = False,
+        tune_grid: Optional[Dict[str, Dict[str, object]]] = None,
+        n_splits_tune: Optional[int] = None,
     ) -> None:
         """
         Parameters
         ----------
+        tune:
+            Run a nested, subject-grouped hyperparameter search per modality
+            before fitting it. The search runs entirely inside this ``fit`` call
+            on the data it is given, so when ``fit`` receives an outer training
+            fold (as in :func:`cross_validate_ensemble`), no outer test subject
+            can influence the chosen hyperparameters. Off by default because it
+            multiplies fit cost by the grid size.
+        tune_grid:
+            Optional per-modality override of the default search grids, keyed by
+            modality name (``{"fmri": {"C": [...], "l1_ratio": [...]}}``).
+        n_splits_tune:
+            Inner folds for the tuning search. Defaults to ``n_splits``.
         weight_metric:
             Any key produced by
             :func:`~behavioral_decoding.evaluation.metrics.classification_report`.
@@ -91,6 +106,9 @@ class MultimodalEnsemble(BaseEstimator, ClassifierMixin):
         self.drop_below_chance = drop_below_chance
         self.weight_floor = weight_floor
         self.chance_level = chance_level
+        self.tune = tune
+        self.tune_grid = tune_grid
+        self.n_splits_tune = n_splits_tune
 
     # -------------------------------------------------------------------- fit
 
@@ -136,11 +154,34 @@ class MultimodalEnsemble(BaseEstimator, ClassifierMixin):
         self.oof_proba_: Dict[str, np.ndarray] = {}
         self.modality_scores_: Dict[str, Dict[str, float]] = {}
         self.specs_: Dict[str, Dict[str, object]] = {}
+        self.tuning_: Dict[str, Dict[str, object]] = {}
 
+        tune_grid = self.tune_grid or {}
         for modality in progress(dataset.modalities, desc="modalities"):
             block: ModalityBlock = dataset.blocks[modality]
             kwargs = dict(specs.get(modality, {}))
             kwargs.setdefault("seed", self.seed)
+
+            if self.tune:
+                # Search hyperparameters on THIS data only. Inside an outer fold
+                # that data is the outer training set, so the search never sees
+                # the outer test subjects. The chosen params override the
+                # defaults, but any explicit spec value is passed through as a
+                # fixed constraint the search cannot break.
+                tuning = tune_modality_model(
+                    modality,
+                    block.X,
+                    y_train,
+                    groups,
+                    grid=tune_grid.get(modality),  # type: ignore[arg-type]
+                    n_splits=self.n_splits_tune or effective_splits,
+                    weight_metric=self.weight_metric,
+                    seed=self.seed,
+                    fixed_kwargs=kwargs,
+                )
+                self.tuning_[modality] = tuning
+                kwargs.update(tuning["best_params"])  # type: ignore[arg-type]
+
             model = build_modality_model(modality, y=y_train, **kwargs)  # type: ignore[arg-type]
             self.specs_[modality] = dict(getattr(model, "bd_spec_", {}))
 
@@ -303,6 +344,8 @@ class MultimodalEnsemble(BaseEstimator, ClassifierMixin):
                 m: dict(s) for m, s in self.modality_scores_.items()
             },
             "modality_specs": {m: dict(s) for m, s in self.specs_.items()},
+            "tuning": {m: dict(t) for m, t in getattr(self, "tuning_", {}).items()},
+            "tuned": bool(self.tune),
             "seed": self.seed,
             "n_splits": self.n_splits,
         }
