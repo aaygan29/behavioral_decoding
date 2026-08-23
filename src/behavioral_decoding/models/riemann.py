@@ -127,11 +127,28 @@ class RiemannianTangentSpace(BaseEstimator, TransformerMixin):
         Subtract the training-set mean log-covariance (the log-Euclidean mean's
         logarithm). Improves conditioning and is leakage-safe because the mean
         is computed in ``fit`` on training data only.
+    metric:
+        ``"logeuclid"`` (default) uses the closed-form log-Euclidean map
+        implemented here, which needs only NumPy/SciPy. ``"riemann"`` uses the
+        **affine-invariant** metric via the optional :mod:`pyriemann` backend:
+        it iterates to the true Riemannian geometric mean and whitens by it
+        before taking the tangent map, which is the more principled projection
+        on ill-conditioned real EEG. It is a drop-in with an extra dependency;
+        install with ``pip install '.[riemann]'``. Selecting it without
+        pyriemann installed raises a clear ImportError rather than silently
+        falling back, so a reported "affine-invariant" result is always the real
+        thing.
     """
 
-    def __init__(self, shrinkage: float = 1e-3, center: bool = True) -> None:
+    def __init__(
+        self,
+        shrinkage: float = 1e-3,
+        center: bool = True,
+        metric: str = "logeuclid",
+    ) -> None:
         self.shrinkage = shrinkage
         self.center = center
+        self.metric = metric
 
     def _log_covariances(self, X: np.ndarray) -> np.ndarray:
         k = n_channels_from_flat(X.shape[1])
@@ -141,9 +158,36 @@ class RiemannianTangentSpace(BaseEstimator, TransformerMixin):
             logs[i] = _symmetric_logm(_regularise(mats[i], self.shrinkage))
         return logs
 
+    def _spd_stack(self, X: np.ndarray) -> np.ndarray:
+        """Recover regularised, positive-definite ``(n, k, k)`` matrices."""
+        k = n_channels_from_flat(X.shape[1])
+        mats = unflatten_spd(X, k)
+        return np.stack([_regularise(mats[i], self.shrinkage) for i in range(mats.shape[0])])
+
+    def _make_pyriemann(self):
+        try:
+            from pyriemann.tangentspace import TangentSpace
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "metric='riemann' needs the affine-invariant backend pyriemann. "
+                "Install with `pip install '.[riemann]'`, or use the default "
+                "metric='logeuclid', which needs no extra dependency."
+            ) from exc
+        return TangentSpace(metric="riemann")
+
     def fit(self, X: np.ndarray, y=None) -> RiemannianTangentSpace:
         X = np.asarray(X, dtype=float)
         self.n_channels_ = n_channels_from_flat(X.shape[1])
+
+        if self.metric == "riemann":
+            # Affine-invariant backend: fit the geometric mean + whitening on
+            # training data only, so it stays leakage-safe inside the fold/bag.
+            self.backend_ = self._make_pyriemann()
+            self.backend_.fit(self._spd_stack(X))
+            return self
+        if self.metric != "logeuclid":
+            raise ValueError(f"metric must be 'logeuclid' or 'riemann'; got {self.metric!r}")
+
         logs = self._log_covariances(X)
         # Log-Euclidean mean's logarithm is just the arithmetic mean of the
         # per-trial log-covariances. This is the reference point we linearise at.
@@ -151,9 +195,14 @@ class RiemannianTangentSpace(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X, dtype=float)
+        if self.metric == "riemann":
+            if not hasattr(self, "backend_"):
+                raise RuntimeError("RiemannianTangentSpace is not fitted")
+            return self.backend_.transform(self._spd_stack(X))
+
         if not hasattr(self, "mean_log_"):
             raise RuntimeError("RiemannianTangentSpace is not fitted")
-        X = np.asarray(X, dtype=float)
         logs = self._log_covariances(X)
         centred = logs - self.mean_log_[None, :, :]
         return flatten_spd(centred)

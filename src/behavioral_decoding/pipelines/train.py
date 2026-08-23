@@ -18,7 +18,12 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from ..config import ExperimentConfig
-from ..evaluation.metrics import bootstrap_ci, format_report, permutation_test
+from ..evaluation.metrics import (
+    bootstrap_ci,
+    calibration_curve_points,
+    format_report,
+    permutation_test,
+)
 from ..evaluation.neuroforecast import (
     compare_forecast_arms,
     cross_validate_ensemble,
@@ -122,6 +127,8 @@ def run_experiment(
         n_splits_inner=cfg.evaluation.n_splits_inner,
         seed=cfg.seed,
         modality_specs=cfg.modality_specs(),
+        tune=cfg.model.tune,
+        tune_grid=cfg.model.tune_grid or None,
     )
 
     y = np.asarray(dataset.y_individual)
@@ -138,6 +145,15 @@ def run_experiment(
         "permutation_test": permutation_test(
             y, oof, n_perm=cfg.evaluation.n_permutations, groups=dataset.subject_ids, seed=cfg.seed
         ),
+        # Reliability curve on the pooled out-of-fold probabilities. The
+        # ensemble combines probabilities, so its calibration (not just its
+        # ranking) is part of the claim; ECE is already in pooled_metrics, this
+        # is the data behind it.
+        "calibration_curve": calibration_curve_points(y, oof, n_bins=10),
+        "per_modality_calibration": {
+            m: calibration_curve_points(y, np.asarray(p), n_bins=10)
+            for m, p in cv_result["per_modality_oof"].items()
+        },
     }
 
     logger.info(
@@ -173,6 +189,8 @@ def run_experiment(
         modality_specs=cfg.modality_specs(),
         drop_below_chance=cfg.model.drop_below_chance,
         weight_floor=cfg.model.weight_floor,
+        tune=cfg.model.tune,
+        tune_grid=cfg.model.tune_grid or None,
     ).fit(dataset)
     record["final_model"] = ensemble.to_record()
     logger.info("\n%s", ensemble.reconciliation_report())

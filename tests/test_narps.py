@@ -109,19 +109,26 @@ def test_unknown_response_string_raises():
 # ---------------------------------------------------------------- behaviour
 
 
-def test_behaviour_block_excludes_accept_and_uses_economic_features():
+def test_behaviour_block_excludes_accept_and_rt_by_default():
     parsed = parse_events(_events())
     block = NARPSLoader().behavior_block(parsed, "sub-001")
     assert "accept" not in block.feature_names
-    assert set(block.feature_names) == {"gain", "loss", "expected_value", "abs_expected_value", "RT"}
+    # RT is OFF by default: it is measured after the decision, so including it
+    # when predicting accept/reject leaks the outcome and inflates accuracy.
+    assert "RT" not in block.feature_names
+    assert set(block.feature_names) == {"gain", "loss", "expected_value", "abs_expected_value"}
     assert block.n_trials == 4
 
 
-def test_behaviour_can_drop_rt_and_ev():
+def test_behaviour_includes_rt_only_when_explicitly_requested():
     parsed = parse_events(_events())
-    block = NARPSLoader(include_rt=False, include_expected_value=False).behavior_block(
-        parsed, "sub-001"
-    )
+    block = NARPSLoader(include_rt=True).behavior_block(parsed, "sub-001")
+    assert "RT" in block.feature_names
+
+
+def test_behaviour_can_drop_ev():
+    parsed = parse_events(_events())
+    block = NARPSLoader(include_expected_value=False).behavior_block(parsed, "sub-001")
     assert set(block.feature_names) == {"gain", "loss"}
 
 

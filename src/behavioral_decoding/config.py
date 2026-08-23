@@ -48,6 +48,11 @@ class ModelConfig:
     n_bags: Dict[str, int] = field(default_factory=dict)
     max_samples: float = 0.8
     max_features: float = 1.0
+    # Nested, subject-grouped hyperparameter search per modality. Off by default
+    # (it multiplies fit cost by the grid size); when on, the search runs inside
+    # each outer training fold so it never sees the outer test subjects.
+    tune: bool = False
+    tune_grid: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass

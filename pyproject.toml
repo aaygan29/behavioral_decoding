@@ -39,6 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 fmri = ["nilearn>=0.10", "nibabel>=5.0"]
 eeg = ["mne>=1.5"]
+riemann = ["pyriemann>=0.5"]
 face = ["opencv-python>=4.8"]
 vision = ["torch>=2.0", "transformers>=4.35"]
 dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5"]
@@ -46,6 +47,7 @@ all = [
     "nilearn>=0.10",
     "nibabel>=5.0",
     "mne>=1.5",
+    "pyriemann>=0.5",
     "opencv-python>=4.8",
     "torch>=2.0",
     "transformers>=4.35",

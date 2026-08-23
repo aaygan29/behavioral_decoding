@@ -107,10 +107,19 @@ Two honest caveats:
   shows on ill-conditioned real EEG, which is the regime the method was built
   for. The tests assert the path recovers covariance structure *above chance*,
   not that it beats logistic on synthetic data, which would be cherry-picking.
-- This is the **log-Euclidean** metric (closed-form, scipy-only). `pyriemann`'s
-  affine-invariant metric, which iterates to a geometric mean and whitens by it,
-  is a further upgrade; swapping the reference-point computation for it is the
-  natural next step if a real EEG dataset warrants it.
+- The default is the **log-Euclidean** metric (closed-form, scipy-only). The
+  **affine-invariant** metric, which iterates to a geometric mean and whitens by
+  it, is now available as an optional backend:
+  `build_modality_model("eeg", base_learner="riemann", riemann_metric="riemann")`
+  (or `RiemannianTangentSpace(metric="riemann")`), which uses `pyriemann`
+  (`pip install '.[riemann]'`). It is the more principled projection on
+  ill-conditioned real EEG. Selecting it without `pyriemann` installed raises a
+  clear `ImportError` instead of silently falling back, so a reported
+  affine-invariant result is always the real thing.
+- **Validation is not limited to clean data.** `tests/test_riemann.py` exercises
+  the tangent map on noisy covariances (heavy additive channel noise) and on
+  short-epoch, rank-deficient covariances, asserting finite output and
+  above-chance recovery under noise, which is the regime the method is for.
 
 ## The other suggested model, and why it is not a drop-in
 
