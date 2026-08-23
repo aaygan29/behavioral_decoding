@@ -23,7 +23,8 @@ effects is where trees earn their keep.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import itertools
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from sklearn.base import BaseEstimator
@@ -54,6 +55,23 @@ DEFAULT_BASE_LEARNER: Dict[str, str] = {
 # Bag counts are modality-specific: noisier, higher-dimensional blocks benefit
 # from more bags, cheap low-dimensional ones do not need them.
 DEFAULT_N_BAGS: Dict[str, int] = {FMRI: 25, EEG: 25, FACE: 40, BEHAVIOR: 25}
+
+# Default nested-tuning grids, keyed by base-learner kind. Deliberately small:
+# the outer CV re-runs the whole search inside every training fold, so a grid
+# with hundreds of points would cost more than the sample can justify. Keys are
+# build_modality_model kwargs; C/l1_ratio pass through to the estimator,
+# k_neighbors tunes the resampler, max_samples/n_bags tune the bagging.
+DEFAULT_TUNE_GRID: Dict[str, Dict[str, List[Any]]] = {
+    "elasticnet": {
+        "C": [0.1, 1.0, 10.0],
+        "l1_ratio": [0.2, 0.5, 0.8],
+        "k_neighbors": [3, 5],
+    },
+    "logistic": {"C": [0.1, 1.0, 10.0], "k_neighbors": [3, 5]},
+    "linear_svm": {"C": [0.1, 1.0, 10.0]},
+    "gradient_boosting": {"max_samples": [0.6, 0.8], "n_bags": [25]},
+    "random_forest": {"max_samples": [0.6, 0.8]},
+}
 
 
 def make_base_learner(
@@ -148,6 +166,7 @@ def build_modality_model(
     max_features: float = 1.0,
     max_samples: float = 0.8,
     seed: int = 0,
+    riemann_metric: str = "logeuclid",
     **learner_kwargs: Any,
 ) -> BaggingClassifier:
     """Build the bagged, resampling-safe model for one modality.
@@ -197,7 +216,7 @@ def build_modality_model(
     if kind == "riemann":
         from .riemann import RiemannianTangentSpace
 
-        pre_steps = [("tangent", RiemannianTangentSpace())]
+        pre_steps = [("tangent", RiemannianTangentSpace(metric=riemann_metric))]
         estimator = make_base_learner("logistic", class_weight=class_weight, seed=seed)
         if max_features != 1.0:
             logger.warning(
@@ -233,6 +252,7 @@ def build_modality_model(
     model.bd_spec_ = {
         "modality": modality,
         "base_learner": kind,
+        "riemann_metric": riemann_metric if kind == "riemann" else None,
         "n_bags": bags,
         "sampler": chosen_sampler,
         "k_neighbors": chosen_k,
@@ -242,3 +262,106 @@ def build_modality_model(
         "seed": seed,
     }
     return model
+
+
+def _split_grid_keys(grid: Dict[str, List[Any]]) -> Tuple[List[str], List[List[Any]]]:
+    keys = list(grid.keys())
+    values = [list(grid[k]) for k in keys]
+    return keys, values
+
+
+def tune_modality_model(
+    modality: str,
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    base_learner: Optional[str] = None,
+    grid: Optional[Dict[str, List[Any]]] = None,
+    n_splits: int = 4,
+    weight_metric: str = "balanced_accuracy",
+    seed: int = 0,
+    fixed_kwargs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Nested, subject-grouped hyperparameter search for one modality model.
+
+    This is the *inner* loop of a nested CV. It is meant to be called on the
+    training rows of an outer fold only (:class:`MultimodalEnsemble` does exactly
+    that), so the outer test subjects never touch the search. Within the training
+    set it scores each grid point by grouped out-of-fold ``weight_metric`` using
+    the same subject-grouped splitter as everything else, so a subject is never
+    on both sides of an inner fold either.
+
+    The grid can tune the elastic-net penalty (``C``, ``l1_ratio``), the
+    resampling (``k_neighbors``), and the bagging (``n_bags``, ``max_samples``)
+    together, because every point is evaluated on the fully-assembled bagged,
+    resampling-safe model, not on a bare estimator.
+
+    Returns a dict with ``best_params``, ``best_score``, and the full ``table``
+    of ``(params, score)`` for the run record. Falls back to an empty search
+    (``best_params={}``) if fewer than two inner folds are possible.
+    """
+    from ..evaluation.cv import out_of_fold_proba
+    from ..evaluation.metrics import classification_report
+
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y)
+    groups = np.asarray(groups)
+    fixed = dict(fixed_kwargs or {})
+
+    kind = (
+        base_learner
+        or fixed.get("base_learner")
+        or DEFAULT_BASE_LEARNER.get(modality, "logistic")
+    )
+    search_grid = grid if grid is not None else DEFAULT_TUNE_GRID.get(kind, {})
+
+    n_subjects = len(np.unique(groups))
+    inner = int(min(n_splits, n_subjects))
+    if inner < 2 or not search_grid:
+        logger.info(
+            "tune[%s]: skipped (%s); using defaults",
+            modality,
+            "no grid" if not search_grid else f"only {n_subjects} subjects",
+        )
+        return {"best_params": {}, "best_score": float("nan"), "table": [], "base_learner": kind}
+
+    keys, values = _split_grid_keys(search_grid)
+    table: List[Dict[str, Any]] = []
+    best_score = -np.inf
+    best_params: Dict[str, Any] = {}
+
+    for combo in itertools.product(*values):
+        params = dict(zip(keys, combo))
+        build_kwargs = dict(fixed)
+        build_kwargs.update(params)
+        build_kwargs.pop("base_learner", None)
+        build_kwargs["seed"] = seed  # fixed may already carry seed; this wins
+        try:
+            model = build_modality_model(
+                modality, y=y, base_learner=kind, **build_kwargs
+            )
+            oof, _ = out_of_fold_proba(
+                model, X, y, groups, n_splits=inner, seed=seed,
+                desc=f"tune:{modality}",
+            )
+            score = classification_report(y, oof).get(weight_metric, float("nan"))
+        except Exception as exc:  # noqa: BLE001 - a bad grid point should not kill the search
+            logger.warning("tune[%s]: grid point %s failed (%s); skipped", modality, params, exc)
+            continue
+        table.append({"params": params, weight_metric: float(score)})
+        if np.isfinite(score) and score > best_score:
+            best_score = float(score)
+            best_params = params
+
+    logger.info(
+        "tune[%s]: best %s = %.3f at %s (searched %d points)",
+        modality, weight_metric, best_score if np.isfinite(best_score) else float("nan"),
+        best_params, len(table),
+    )
+    return {
+        "best_params": best_params,
+        "best_score": float(best_score) if np.isfinite(best_score) else float("nan"),
+        "weight_metric": weight_metric,
+        "table": table,
+        "base_learner": kind,
+    }

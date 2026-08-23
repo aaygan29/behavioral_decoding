@@ -33,11 +33,18 @@ def _spd(n, k, seed=0):
     return A @ A.transpose(0, 2, 1) + k * np.eye(k)
 
 
-def _covariance_dataset(n=180, k=6, seed=0):
-    """Two classes differing in which channel pair is correlated."""
+def _covariance_dataset(n=180, k=6, seed=0, samples=200, noise=0.0, short=False):
+    """Two classes differing in which channel pair is correlated.
+
+    ``noise`` adds channel-wise measurement noise (a heavier diagonal, weaker
+    off-diagonal structure), and ``short`` shrinks the epoch length so the
+    per-epoch covariances become rank-deficient and ill-conditioned. Both make
+    the problem look more like real EEG.
+    """
     rng = np.random.default_rng(seed)
     subjects = np.repeat(np.arange(9), n // 9)
     y = rng.integers(0, 2, size=n)
+    t = k - 1 if short else samples  # short epochs => singular covariance
     mats = []
     for i in range(n):
         W = rng.normal(size=(k, k)) * 0.3 + np.eye(k)
@@ -45,8 +52,11 @@ def _covariance_dataset(n=180, k=6, seed=0):
             W[0, 1] = W[1, 0] = 0.9
         else:
             W[2, 3] = W[3, 2] = 0.9
-        sig = W @ rng.normal(size=(k, 200))
-        mats.append(np.cov(sig))
+        sig = W @ rng.normal(size=(k, t))
+        if noise:
+            sig = sig + rng.normal(scale=noise, size=sig.shape)
+        # bias=True keeps the estimate defined even when t < k (rank-deficient).
+        mats.append(np.cov(sig, bias=True))
     return flatten_spd(np.stack(mats)), y, subjects
 
 
@@ -162,3 +172,74 @@ def test_riemann_classifies_covariance_structure_above_chance():
     oof, _ = out_of_fold_proba(model, X, y, subjects, n_splits=3, seed=0)
     balacc = classification_report(y, oof)["balanced_accuracy"]
     assert balacc > 0.6, f"riemann did not recover covariance structure (balacc={balacc:.3f})"
+
+
+# ---------------------------------------------------- noisy / realistic EEG cases
+
+
+def test_transform_survives_noisy_covariances():
+    """Heavy additive channel noise must not produce non-finite tangent vectors."""
+    X, _, _ = _covariance_dataset(noise=1.5, seed=2)
+    Z = RiemannianTangentSpace().fit_transform(X)
+    assert np.isfinite(Z).all()
+
+
+def test_transform_survives_short_epoch_rank_deficient_covariances():
+    """Short-epoch covariances are singular; shrinkage must keep the log defined."""
+    X, _, _ = _covariance_dataset(short=True, seed=3)
+    Z = RiemannianTangentSpace(shrinkage=1e-2).fit_transform(X)
+    assert np.isfinite(Z).all()
+
+
+def test_riemann_recovers_structure_under_noise():
+    """Positive control on a noisier, harder covariance dataset."""
+    from behavioral_decoding.evaluation.cv import out_of_fold_proba
+    from behavioral_decoding.evaluation.metrics import classification_report
+    from behavioral_decoding.models.modality_models import build_modality_model
+
+    X, y, subjects = _covariance_dataset(noise=0.8, samples=120, seed=4)
+    model = build_modality_model("eeg", y=y, base_learner="riemann", n_bags=8, seed=0)
+    oof, _ = out_of_fold_proba(model, X, y, subjects, n_splits=3, seed=0)
+    balacc = classification_report(y, oof)["balanced_accuracy"]
+    assert balacc > 0.55, f"riemann failed under noise (balacc={balacc:.3f})"
+
+
+# ----------------------------------------------------- affine-invariant backend
+
+
+def test_riemann_metric_requires_pyriemann_or_errors_clearly():
+    """Selecting the affine-invariant metric without pyriemann fails loudly."""
+    X, _, _ = _covariance_dataset(seed=5)
+    ts = RiemannianTangentSpace(metric="riemann")
+    try:
+        import pyriemann  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError, match="pyriemann"):
+            ts.fit(X)
+    else:  # pragma: no cover - only when the optional backend is installed
+        ts.fit(X)
+        Z = ts.transform(X)
+        assert np.isfinite(Z).all()
+
+
+def test_unknown_metric_rejected():
+    X, _, _ = _covariance_dataset(seed=6)
+    with pytest.raises(ValueError, match="logeuclid|riemann"):
+        RiemannianTangentSpace(metric="nonsense").fit(X)
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("pyriemann") is None,
+    reason="pyriemann backend not installed",
+)
+def test_pyriemann_backend_classifies_above_chance():  # pragma: no cover - optional
+    from behavioral_decoding.evaluation.cv import out_of_fold_proba
+    from behavioral_decoding.evaluation.metrics import classification_report
+    from behavioral_decoding.models.modality_models import build_modality_model
+
+    X, y, subjects = _covariance_dataset(noise=0.8, samples=120, seed=7)
+    model = build_modality_model(
+        "eeg", y=y, base_learner="riemann", riemann_metric="riemann", n_bags=8, seed=0
+    )
+    oof, _ = out_of_fold_proba(model, X, y, subjects, n_splits=3, seed=0)
+    assert classification_report(y, oof)["balanced_accuracy"] > 0.55

@@ -95,6 +95,9 @@ class FMRILoader(BaseLoader):
         window_s: float = 4.0,
         mask_img: Optional[object] = None,
         confounds: Optional[Sequence[object]] = None,
+        confound_strategy: str = "motion12+physio",
+        confound_columns: Optional[Sequence[str]] = None,
+        confound_fill: str = "mean",
     ) -> ModalityBlock:
         """Extract trial-wise ROI means from NIfTI runs.
 
@@ -122,7 +125,23 @@ class FMRILoader(BaseLoader):
             to the masker so motion and physiological components are regressed
             out of the ROI timeseries. Strongly recommended for task fMRI, where
             head motion correlates with events; omitting it is allowed and
-            warned about, not silently fine.
+            warned about, not silently fine. A confounds *table* (path or
+            DataFrame) is never passed to Nilearn raw: it is first run through
+            :func:`~behavioral_decoding.io.confounds.select_confounds`, which
+            picks the named nuisance set and fills the leading-NaN derivative and
+            framewise-displacement rows. A confounds *array* is trusted as
+            pre-selected and only NaN-filled.
+        confound_strategy:
+            Named nuisance-regressor set applied when a confounds entry is a
+            table. See :data:`~behavioral_decoding.io.confounds.STRATEGIES`;
+            default ``"motion12+physio"`` (6 motion params + derivatives + CSF +
+            white matter).
+        confound_columns:
+            Explicit column list overriding ``confound_strategy`` for table
+            inputs.
+        confound_fill:
+            Missing-value policy for confounds, ``"mean"`` (default) or
+            ``"zero"``.
 
         Notes
         -----
@@ -166,11 +185,24 @@ class FMRILoader(BaseLoader):
                 f"{len(func_paths)} runs; supply one per run"
             )
 
+        from .confounds import select_confounds
+
         n_runs = len(func_paths)
+        confound_prov: List[object] = []
         for run_idx, func_path in enumerate(
             progress(func_paths, desc="fMRI runs", total=n_runs)
         ):
-            run_confound = confounds[run_idx] if confounds is not None else None
+            run_confound = None
+            if confounds is not None and confounds[run_idx] is not None:
+                # Never hand fMRIPrep's raw table to Nilearn: select the named
+                # nuisance set and fill the leading-NaN rows first.
+                run_confound, prov = select_confounds(
+                    confounds[run_idx],
+                    strategy=confound_strategy,
+                    columns=confound_columns,
+                    fill=confound_fill,
+                )
+                confound_prov.append(prov)
             ts = masker.fit_transform(func_path, confounds=run_confound)
             ev = events[run_idx]
             onsets = np.asarray(ev["onset"], dtype=float)
@@ -200,6 +232,7 @@ class FMRILoader(BaseLoader):
                 window_s=window_s,
                 extraction="peak_window_mean",
                 confounds_regressed=confounds is not None,
+                confound_selection=confound_prov or None,
                 caveat="not a GLM; replace with first-level modelling before reporting",
             ),
         )
