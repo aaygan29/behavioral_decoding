@@ -44,7 +44,13 @@ def classification_report(
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "mcc": float(matthews_corrcoef(y_true, y_pred)),
+        # Calibration matters here specifically because the ensemble reconciles
+        # *probabilities* across modalities: a modality that is accurate but
+        # overconfident distorts a soft or weighted vote. Brier is the mean
+        # squared error of the probabilities; ECE is the average gap between
+        # predicted confidence and observed frequency across bins.
         "brier": float(brier_score_loss(y_true, y_proba)),
+        "ece": expected_calibration_error(y_true, y_proba),
     }
 
     if len(classes) == 2:
@@ -70,6 +76,98 @@ def classification_report(
         }
     )
     return out
+
+
+def expected_calibration_error(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    n_bins: int = 10,
+    strategy: str = "uniform",
+) -> float:
+    """Expected Calibration Error: mean |confidence - accuracy| over bins.
+
+    Bins the predicted positive-class probability, and in each bin compares the
+    mean predicted probability (confidence) to the observed positive rate
+    (accuracy), weighting by bin population. 0 is perfect calibration. A model
+    with high AUC can still have a large ECE if its probabilities are
+    systematically too extreme, which is exactly the failure that corrupts a
+    probability-averaging ensemble.
+
+    ``strategy="uniform"`` uses equal-width bins on ``[0, 1]``;
+    ``"quantile"`` uses equal-population bins, which is steadier when
+    predictions pile up near 0 or 1.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_proba = np.asarray(y_proba, dtype=float)
+    if len(y_true) == 0:
+        return float("nan")
+
+    if strategy == "quantile":
+        edges = np.unique(np.quantile(y_proba, np.linspace(0, 1, n_bins + 1)))
+        if len(edges) < 2:
+            edges = np.array([0.0, 1.0])
+    elif strategy == "uniform":
+        edges = np.linspace(0.0, 1.0, n_bins + 1)
+    else:
+        raise ValueError("strategy must be 'uniform' or 'quantile'")
+
+    # np.digitize with the interior edges; clip so both ends land in a bin.
+    bin_ids = np.clip(np.digitize(y_proba, edges[1:-1], right=False), 0, len(edges) - 2)
+    ece = 0.0
+    n = len(y_true)
+    for b in np.unique(bin_ids):
+        mask = bin_ids == b
+        conf = y_proba[mask].mean()
+        acc = y_true[mask].mean()
+        ece += (mask.sum() / n) * abs(conf - acc)
+    return float(ece)
+
+
+def calibration_curve_points(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    n_bins: int = 10,
+    strategy: str = "uniform",
+) -> Dict[str, list]:
+    """Reliability-curve data: per-bin confidence, accuracy, and count.
+
+    Returns a dict with ``mean_predicted`` (x, the bin's mean confidence),
+    ``observed_frequency`` (y, the bin's positive rate), and ``count`` (bin
+    population). Plot ``observed_frequency`` against ``mean_predicted`` and
+    compare to the ``y = x`` diagonal; points below the diagonal are
+    overconfident, above are underconfident. Serialisable, so it drops straight
+    into the run record for later plotting without a plotting dependency here.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_proba = np.asarray(y_proba, dtype=float)
+
+    if strategy == "quantile":
+        edges = np.unique(np.quantile(y_proba, np.linspace(0, 1, n_bins + 1)))
+        if len(edges) < 2:
+            edges = np.array([0.0, 1.0])
+    elif strategy == "uniform":
+        edges = np.linspace(0.0, 1.0, n_bins + 1)
+    else:
+        raise ValueError("strategy must be 'uniform' or 'quantile'")
+
+    bin_ids = np.clip(np.digitize(y_proba, edges[1:-1], right=False), 0, len(edges) - 2)
+    mean_predicted: list = []
+    observed_frequency: list = []
+    count: list = []
+    for b in range(len(edges) - 1):
+        mask = bin_ids == b
+        if not mask.any():
+            continue
+        mean_predicted.append(float(y_proba[mask].mean()))
+        observed_frequency.append(float(y_true[mask].mean()))
+        count.append(int(mask.sum()))
+    return {
+        "mean_predicted": mean_predicted,
+        "observed_frequency": observed_frequency,
+        "count": count,
+        "strategy": strategy,
+        "n_bins": int(n_bins),
+    }
 
 
 def bootstrap_ci(
@@ -185,6 +283,7 @@ def format_report(report: Dict[str, float], title: str = "") -> str:
         "f1",
         "mcc",
         "brier",
+        "ece",
         "sensitivity",
         "specificity",
     ]

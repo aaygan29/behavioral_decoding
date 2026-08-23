@@ -327,6 +327,8 @@ def cross_validate_ensemble(
     n_splits_inner: int = 4,
     seed: int = 0,
     modality_specs: Optional[Dict[str, Dict[str, object]]] = None,
+    tune: bool = False,
+    tune_grid: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> Dict[str, object]:
     """Nested, subject-grouped evaluation of the full ensemble.
 
@@ -373,7 +375,11 @@ def cross_validate_ensemble(
             n_splits=max(2, inner),
             seed=seed,
             modality_specs=modality_specs,
+            tune=tune,
+            tune_grid=tune_grid,
         )
+        # The ensemble's own inner CV (weights + any tuning) runs on train_ds
+        # only, so tuning here is nested inside the outer fold, not leaked.
         ensemble.fit(train_ds)
 
         oof[test_idx] = ensemble.predict_proba(test_ds)[:, 1]
@@ -388,6 +394,12 @@ def cross_validate_ensemble(
                 "test_subjects": sorted(set(groups[test_idx].tolist())),
                 "weights": dict(ensemble.weights_),
                 "weights_degenerate": bool(getattr(ensemble, "weights_degenerate_", False)),
+                "tuned_params": {
+                    m: t.get("best_params", {})
+                    for m, t in getattr(ensemble, "tuning_", {}).items()
+                }
+                if tune
+                else {},
                 "metrics": classification_report(y[test_idx], oof[test_idx])
                 if len(np.unique(y[test_idx])) > 1
                 else {"note": "single-class test fold; metrics undefined"},

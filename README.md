@@ -37,6 +37,18 @@ real-dataset loaders are built and tested against their actual file formats:
   the aggregate arm by construction, so it is the fMRI plumbing check, not a
   brain-beats-behaviour demonstration.
 
+> **NARPS is not evidence for the market-forecasting claim.** The
+> neuroforecasting thesis (§6, §Interpretation) is that NAcc predicts an
+> *aggregate market outcome* which behaviour fails to forecast. NARPS has no
+> such market outcome: its "aggregate" arm is the population acceptance rate of
+> each gamble, and gain/loss forecast that rate almost by construction, so
+> behaviour is *expected* to win there. NARPS earns its place only as an
+> individual-level check that the NAcc/vmPFC/AIns extraction recovers choice.
+> The market-forecasting evidence comes from datasets with a genuine external
+> outcome (DEAP view counts; the crowdfunding/microloan/video studies in
+> `docs/literature.md`), and the two are kept in separate arms of the run record
+> so they are never conflated.
+
 The MNE/OpenCV loader paths still have not been run against real recordings;
 expect to fix things. See [`docs/design.md`](docs/design.md) §12 for the full
 list of what is not built.
@@ -92,10 +104,10 @@ by `subject_id` and by `stimulus_id`.
 
 | Modality | Default features | Loader |
 |---|---|---|
-| fMRI | NAcc, MPFC, and anterior insula spheres, the anticipatory-affect ROIs from the neuroforecasting papers | `io/fmri.py` |
+| fMRI | NAcc, MPFC, and anterior insula spheres, the anticipatory-affect ROIs from the neuroforecasting papers; fMRIPrep confounds selected and cleaned before extraction | `io/fmri.py`, `io/confounds.py` |
 | EEG | Per-epoch log band power (delta to gamma) plus early-frontal and late-parietal ERP windows, or inter-channel covariance for the Riemannian path | `io/eeg.py` |
 | Face | Vision-transformer frame embeddings, or interpretable action-unit and landmark features | `io/face.py` |
-| Behaviour | Ratings, response times, derived choice features | `io/behavior.py` |
+| Behaviour | Ratings, derived choice features (response time is available but **off by default** for choice prediction: it is measured after the decision, so using it leaks the outcome) | `io/behavior.py` |
 
 Subject keys keep cross-validation honest. Stimulus keys are what let individual
 responses pool into a group-level market forecast.
@@ -167,11 +179,54 @@ one-line config change ([`docs/estimators.md`](docs/estimators.md)):
   flat vector space, so the pipeline projects to the tangent space *first*:
   `Pipeline(RiemannianTangentSpace → StandardScaler → SMOTE → logistic)`. Feed
   it covariance features (`EEGLoader(include_covariance=True)`); the tangent
-  reference is computed on training data only, so it stays leakage-safe.
+  reference is computed on training data only, so it stays leakage-safe. The
+  default metric is the closed-form **log-Euclidean** map (NumPy/SciPy only). An
+  optional **affine-invariant** backend (`riemann_metric="riemann"`, via
+  `pip install '.[riemann]'` for PyRiemann) iterates to the true geometric mean
+  and whitens by it, which is the more principled projection on ill-conditioned
+  real EEG; selecting it without PyRiemann installed raises rather than silently
+  falling back, so an "affine-invariant" result is always the real thing. Both
+  paths are validated on noisy and short-epoch (rank-deficient) covariances in
+  `tests/test_riemann.py`, not just clean synthetic data.
 
 Two learners the docs deliberately do **not** ship as drop-ins, with the honest
 reasons: mixed-effects (random intercepts do not transfer under subject-grouped
 CV) and, previously, Riemannian (now built, above).
+
+### 7. fMRIPrep confound preprocessing
+
+A raw `*_desc-confounds_timeseries.tsv` is never handed to Nilearn as-is.
+`io/confounds.select_confounds` picks an explicit, named nuisance set (default
+`motion12+physio`: six motion parameters, their derivatives, CSF, white matter)
+rather than regressing out all hundred-plus columns, and it handles the reality
+of the files: the leading-row NaNs on every `*_derivative1` and
+`framewise_displacement` column are filled (column mean by default), and
+non-numeric or all-NaN columns are dropped by name. What was kept, what was
+requested-but-missing, what was dropped, and how many NaN cells were filled all
+land in the block provenance and the run record. `FMRILoader.load` exposes
+`confound_strategy` / `confound_columns` / `confound_fill`.
+
+### 8. Nested hyperparameter tuning
+
+`MultimodalEnsemble(tune=True)` runs a subject-grouped hyperparameter search per
+modality (elastic-net `C` and `l1_ratio`, resampling `k_neighbors`, and bagging
+`n_bags` / `max_samples`). The search is **nested**: it runs entirely inside each
+outer training fold on that fold's subjects, scored by grouped out-of-fold
+balanced accuracy, so the outer test subjects never influence the chosen
+hyperparameters. The grids are small on purpose (the outer CV re-runs the whole
+search in every fold) and overridable via `tune_grid`; the params chosen in each
+fold are written to the run record so their stability can be inspected. Off by
+default because it multiplies fit cost by the grid size.
+
+### 9. Probability calibration
+
+Because the ensemble reconciles *probabilities*, calibration is part of the
+claim, not just ranking. Every `classification_report` now carries the **Brier
+score** and **Expected Calibration Error**, and the run record stores
+**reliability-curve** data (per-bin confidence vs observed frequency) for the
+pooled out-of-fold predictions and for each modality
+(`evaluation/metrics.calibration_curve_points`). A modality that is accurate but
+overconfident is visible here before it distorts a soft or weighted vote.
 
 ### 5. Vision transformers for the face arm
 
