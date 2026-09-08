@@ -85,6 +85,21 @@ python scripts/run_narps.py --demo   # whole NARPS BIDS path (needs .[fmri])
 The MNE/OpenCV loader paths have not yet been run against real recordings; expect
 to fix things. [`docs/design.md`](docs/design.md) §12 lists what is not built.
 
+**African cohort (behaviour + aggregate arm): built and run on real data.**
+DEAP and NARPS are both Western-collected. `io/behavior.py`'s loader has been
+run, unmodified, against 3,023 real Kenyan Kiva microloan records
+([`scripts/run_africa_cohort.py`](scripts/run_africa_cohort.py),
+[`docs/africa_cohort.md`](docs/africa_cohort.md)) as a same-pipeline control:
+individual-level loan repayment (balanced accuracy 0.630, 95% CI
+0.615–0.646) and an aggregate arm forecasting sector-level repayment rate from
+held-out sectors (R² 0.406, n=14 sectors, noisy at that n, flagged as such by
+the pipeline itself). No open African fMRI/EEG dataset with this project's
+modality coverage exists yet, so there is no neural arm here, see
+`docs/africa_cohort.md` for exactly what was dropped as confounded (a
+near-leakage column) and what statistic breaks (in an informative way) on
+single-observation-per-subject data. Remaining candidate datasets and gaps are
+tracked in [`docs/data_sources.md`](docs/data_sources.md).
+
 > **NARPS validates the plumbing, not the market claim.** NARPS is an
 > *individual-level* fMRI check that the reward ROIs recover accept/reject. Its
 > "aggregate" arm is the population acceptance rate of each gamble, which gain and
@@ -358,6 +373,93 @@ Worth reading before writing any of this up; expanded in
 - **Individual and aggregate levels have different effective sample sizes.** Thirty
   subjects is adequate for aggregate forecasting, where the unit of analysis is the
   stimulus. It is not adequate for strong individual-level decoding claims.
+
+---
+
+## Neuroprivacy risk demonstration (ASZED-153, Nigeria)
+
+A different arm from the rest of this repo, run and documented separately:
+[`docs/africa_neuroprivacy.md`](docs/africa_neuroprivacy.md),
+[`scripts/run_africa_neuroprivacy.py`](scripts/run_africa_neuroprivacy.py).
+
+Real 19-channel EEG from 76 subjects (schizophrenia patients and matched
+controls, Ile-Ife/Ilesa, Nigeria, [ASZED-153](https://zenodo.org/records/14178398),
+CC-BY), MD5-verified on download. Each subject's four recorded EEG segments
+are treated as four modalities and run through the same accuracy-weighted
+multibagging ensemble used everywhere else in this repo, same band-power
+feature family, same nested subject-grouped CV, same calibration and
+bootstrap reporting, but predicting diagnostic category instead of a market
+outcome. Literature-grounded EEG correlates of schizophrenia (resting
+frontal delta/theta, reduced alpha, reduced auditory gamma phase-locking)
+motivate why this label should live in exactly this kind of short, cheap
+recording.
+
+Result: balanced accuracy 0.705 (95% bootstrap CI 0.616–0.799, chance = 0.5)
+recovering diagnosis from four short EEG segments never designed to disclose
+it. The permutation test this repo normally reports is degenerate for a
+subject-level label (documented, not hidden, see the doc). This is the
+empirical basis for the risk claim in the section below: an off-the-shelf
+pipeline, real African clinical EEG, and a handful of short recordings are
+enough to leak a protected health attribute the recording session was not
+about.
+
+**The risk is not EEG-specific.**
+[`docs/biosignal_privacy_generalization.md`](docs/biosignal_privacy_generalization.md)
+shows why the same pipeline absorbs cardiac, electrodermal, pupillometric, and
+endocrine signals as additional modality blocks with no change to the
+mathematics, lists the parameters that set the size of the risk, and reports a
+second real-data run on a non-neural biosignal: this repo's ensemble applied to
+the [PPG-BP Database](https://doi.org/10.1038/sdata.2018.20) (219 fingertip
+photoplethysmograms, Guilin, China), decoding undisclosed cardiovascular and
+metabolic status
+([`scripts/run_biosignal_privacy.py`](scripts/run_biosignal_privacy.py)). That
+arm is a *weaker* effect than ASZED-153 and is reported as such: the point of
+running it was to test the generalization honestly, not to manufacture a second
+alarming number.
+
+**Fusion is what makes it dangerous.**
+[`docs/biosignal_fusion.md`](docs/biosignal_fusion.md) closes the harder question:
+whether reconciling several biosignal families at once beats the best single one.
+On a generator with planted structure, run through this repo's ensemble unchanged,
+fused balanced accuracy reaches 0.62 against a best-single-family 0.58 (ROC AUC
+0.60 to 0.68), an ablation ladder rises as each independent family joins and is
+flat when a pure-noise family is appended, and five runtime gates verify the
+result ([`scripts/run_biosignal_fusion.py`](scripts/run_biosignal_fusion.py),
+figure in [`docs/figures/`](docs/figures/biosignal_fusion.png)). The inverse-variance
+argument (independent weak leaks add up) is the reason aggregate access to cheap
+biosignals is a biosecurity concern, not just a privacy one.
+
+---
+
+## Relevance to the Global South and Africa
+
+*Context and motivation, kept separate from the method above. Nothing in this
+section changes what the pipeline does or how a result is validated, see
+[Interpretation limits](#interpretation-limits) for the actual scientific
+caveats.*
+
+This is an **AIxBio Africa** project. The neuroforecasting literature it builds
+on (Genevsky, Yoon, Knutson) comes almost entirely from WEIRD-population fMRI
+samples, and open neuroimaging data and hardware carry the same skew. Doing
+this work as an African-led effort, rather than importing a finished pipeline
+and a foreign dataset, is part of the point: African researchers set and own
+the methodology here, the eventual test of whether the effect holds in African
+populations and markets is treated as an open question rather than assumed, and
+the reproducibility machinery (run records, provenance, calibration reporting)
+exists partly so results can't be quietly overclaimed or exported without an
+audit trail, a real risk in a research environment with weaker regulatory
+oversight than where this literature originated. That gap is checked, not
+assumed: as of 2026-08-17 neither Nigeria nor Kenya has a binding,
+AI-specific national law, per the
+[Global AI Governance Map](https://global-ai-governance-map.vercel.app/) (see
+the sourced table in
+[`docs/africa_neuroprivacy.md`](docs/africa_neuroprivacy.md#governance-context-why-this-risk-isnt-hypothetical)).
+The
+[neuroprivacy demonstration above](#neuroprivacy-risk-demonstration-aszed-153-nigeria)
+is what that risk looks like when it isn't hypothetical: real African
+clinical EEG, an off-the-shelf pipeline, and a decodable protected attribute
+the recording wasn't about. None of the rest of this section is a scientific
+claim; it's why the project exists and who it's built to serve.
 
 ---
 
