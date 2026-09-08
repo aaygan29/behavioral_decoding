@@ -118,16 +118,21 @@ def _covariance_block(
     """
     n_trials = driver.shape[0]
     tri_len = n_channels * (n_channels + 1) // 2
-    out = np.empty((n_trials, tri_len))
     mats = np.empty((n_trials, n_channels, n_channels))
     for t in range(n_trials):
         ts = noise * rng.standard_normal((n_samples, n_channels))
-        common = loading * driver[t] + 0.3 * subj_bias[t]
-        ts[:, 0] += common * rng.standard_normal(n_samples) * 0.0 + common
-        ts[:, 1] += 0.8 * common
-        ts[:, 2] += 0.4 * common
-        cov = np.cov(ts, rowvar=False)
-        mats[t] = cov
+        # The driver modulates inter-channel COUPLING, not the channel mean.
+        # A shared latent source is injected into a few channels with a gain that
+        # is linear in the (signed) driver, so cov(ch0, ch_k) scales with the
+        # driver. This is the connectivity-strength structure the tangent-space
+        # map reads; a mean shift would be invisible because covariance is
+        # mean-centred.
+        latent = rng.standard_normal(n_samples)
+        coupling = loading * driver[t] + 0.3 * subj_bias[t]
+        ts[:, 0] += latent
+        ts[:, 1] += coupling * latent
+        ts[:, 2] += 0.6 * coupling * latent
+        mats[t] = np.cov(ts, rowvar=False)
     return flatten_spd(mats)
 
 
@@ -273,14 +278,14 @@ def _config(name: str, families: List[str], reconciliation: str, quick: bool) ->
 
 def _metrics(rec: Dict) -> Dict[str, float]:
     m = rec["individual"]["pooled_metrics"]
-    ci = rec["individual"]["bootstrap_ci"].get("balanced_accuracy", {})
+    ci = rec["individual"]["bootstrap_ci"]  # flat dict: metric/point/lo/hi/n_valid_boot
     perm = rec["individual"]["permutation_test"]
     return {
         "balanced_accuracy": float(m.get("balanced_accuracy", float("nan"))),
         "roc_auc": float(m.get("roc_auc", float("nan"))),
-        "ci_low": float(ci.get("low", float("nan"))),
-        "ci_high": float(ci.get("high", float("nan"))),
-        "perm_p": float(perm.get("p_value", float("nan"))),
+        "ci_low": float(ci.get("lo", float("nan"))),
+        "ci_high": float(ci.get("hi", float("nan"))),
+        "perm_p": float(perm.get("p_value", perm.get("p", float("nan")))),
     }
 
 
