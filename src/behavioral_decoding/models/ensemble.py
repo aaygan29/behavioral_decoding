@@ -22,7 +22,7 @@ assume:
     chance, then take a weighted probability average. This is the rule the
     project is built around.
 
-The word *out-of-fold* is load-bearing. Weighting by training accuracy would
+Out-of-fold matters here. Weighting by training accuracy would
 hand the largest weight to whichever model memorised its training set hardest,
 which for the 1536-dimensional face block is guaranteed. Weights here come from
 :func:`~behavioral_decoding.evaluation.cv.out_of_fold_proba`, run inside ``fit``
