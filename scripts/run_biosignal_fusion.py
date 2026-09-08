@@ -1,57 +1,27 @@
 """Multi-biosignal fusion: does combining biosignal families beat the best single one?
 
-Motivation
-----------
-The privacy work in ``scripts/run_biosignal_privacy.py`` established that a single
-non-neural biosignal family (fingertip PPG) leaks health status weakly through the
-repo's own bagged/SMOTE/OOF-weighted pipeline. It did **not** test the claim that
-matters most for the AIxBio biorisk argument: that an actor who reconciles *several*
-biosignal families at once gets a prediction stronger than any family alone. The
-prior PPG run could not test this honestly, because its three "segments" were repeats
-of one measurement, not distinct modalities.
+Runs the repo's own MultimodalEnsemble (bagged, in-fold SMOTE, out-of-fold-weighted
+reconciliation, Riemannian tangent-space backend for EEG covariance) over six
+biosignal families on a generator with planted structure, then verifies the
+aggregation gain with runtime gates. Positive control on synthetic data, not a claim
+about real people. See docs/biosignal_fusion.md.
 
-This script tests the fusion claim on a generator where fusion *should* help by
-construction, then checks that the repo's real ``MultimodalEnsemble`` actually
-recovers the gain. It is a positive control for the aggregation machinery, not a
-claim about any real person.
+A binary choice is driven by four partly-independent latent drivers, each sensed best
+by a different family, plus one family that senses nothing:
 
-Design (grounded in the biosignal-to-behaviour literature, see
-``docs/biosignal_fusion.md``)
-------------------------------------------------------------------------------------
-A binary choice is driven by four partly-independent latent drivers, each of which a
-different biosignal family senses best, plus a family that senses nothing:
+  driver             family              literature anchor
+  autonomic arousal  cardiac (HRV), eda  Forte 2021; Dunn 2006 (somatic marker)
+  noradrenergic vol. pupil               Pajkossy 2017; Vincent 2019 (LC-NE)
+  cortical state     eeg (covariance)    Riemannian tangent backend
+  slow endocrine     endocrine           Coates 2008; Cueva 2015
+  none               null_control        negative control, must be dropped
 
-  driver              sensed best by      literature anchor
-  ------              --------------      -----------------
-  autonomic arousal   cardiac (HRV), eda  Forte 2021; Dunn 2005 (somatic marker)
-  noradrenergic vol.  pupil               Pajkossy 2017; Vincent 2019 (LC-NE)
-  cortical state      eeg (covariance)    repo core; Riemannian tangent backend
-  slow endocrine tone endocrine           Coates 2008; Cueva 2015 (cortisol/testosterone)
-  (none)              null_control        negative control: must be dropped
+Per-family noise is independent, so no family sees the whole logit and fusion recovers
+more of it than the best single family (inverse-variance argument in the doc).
 
-Because each family observes its driver(s) under **independent** noise, no single
-family sees the whole choice logit, so reconciling them recovers more of it than the
-best one alone. The endocrine family is deliberately weak and subject-level (slow
-hormones barely move trial to trial), and the null family carries pure noise: a
-correct ensemble must down-weight the first and drop the second.
-
-What is reported
-----------------
-1. Single-family baselines: each family alone through ``run_experiment``.
-2. The full six-family ensemble under all three reconciliation rules.
-3. Fusion lift = full-ensemble pooled balanced accuracy minus the best single family,
-   with subject-bootstrap CIs on both.
-4. An ablation ladder (neuro -> +cardiac -> +eda -> +pupil -> +endocrine -> +null)
-   showing whether accuracy climbs as complementary families are added and flattens
-   when the null family is appended.
-5. A ground-truth check: the learned accuracy_weighted weights should rank the
-   families by their planted signal strength, and the null family's weight should be
-   ~0.
-
-Run
----
-    python scripts/run_biosignal_fusion.py               # full experiment
-    python scripts/run_biosignal_fusion.py --quick       # fewer boots/perms, faster
+Run:
+    python scripts/run_biosignal_fusion.py           # full
+    python scripts/run_biosignal_fusion.py --quick   # faster
 """
 
 from __future__ import annotations
@@ -354,12 +324,95 @@ def main() -> int:
     out.write_text(json.dumps(results, indent=2, default=float))
     print(f"\nwrote {out}")
 
-    # Honest one-line verdict.
+    make_figure(results, REPO_ROOT / "docs" / "figures" / "biosignal_fusion.png")
+    n_pass = check_gates(results)
+
     aw = results["fusion"]["accuracy_weighted"]["metrics"]["balanced_accuracy"]
-    print(f"\nverdict: full accuracy-weighted fusion = {aw:.3f} vs best single "
+    print(f"\nfull accuracy-weighted fusion = {aw:.3f} vs best single "
           f"({best_fam}) = {best:.3f}; lift = {aw - best:+.3f}. "
-          "This is a positive control on synthetic data, not a claim about real people.")
-    return 0
+          "Positive control on synthetic data, not a claim about real people.")
+    return 0 if n_pass else 1
+
+
+def check_gates(results: Dict) -> bool:
+    """Verify each planted fact. Prints PASS/FAIL; returns True iff all pass."""
+    single = results["single_family"]
+    aw = results["fusion"]["accuracy_weighted"]
+    best = max(v["balanced_accuracy"] for v in single.values())
+    ladder = results["ablation"]
+    checks = []
+
+    # 1. Fusion beats the best single family.
+    fused = aw["metrics"]["balanced_accuracy"]
+    checks.append(("fusion > best single family", fused > best,
+                   f"{fused:.3f} vs {best:.3f}"))
+    # 2. Null modality is dropped (weight ~0) and does not beat chance.
+    wnull = aw["weights"].get("null_control", 1.0)
+    checks.append(("null modality weight = 0", wnull == 0.0, f"weight={wnull:.3f}"))
+    checks.append(("null modality not above chance",
+                   single["null_control"]["balanced_accuracy"] <= 0.5,
+                   f"balacc={single['null_control']['balanced_accuracy']:.3f}"))
+    # 3. Adding the null family does not raise ladder accuracy.
+    checks.append(("null adds no accuracy in ladder",
+                   ladder[-1]["balanced_accuracy"] <= ladder[-2]["balanced_accuracy"] + 1e-9,
+                   f"{ladder[-2]['balanced_accuracy']:.3f} -> {ladder[-1]['balanced_accuracy']:.3f}"))
+    # 4. Endocrine (planted weak) ranks below the strong families' mean weight.
+    w = aw["weights"]
+    strong = np.mean([w["cardiac"], w["eeg"], w["pupil"]])
+    checks.append(("endocrine weaker than strong families",
+                   w["endocrine"] < strong, f"{w['endocrine']:.3f} < {strong:.3f}"))
+
+    print("\n=== gates (ground-truth checks) ===")
+    ok = True
+    for name, passed, detail in checks:
+        print(f"  [{'PASS' if passed else 'FAIL'}] {name:<38} {detail}")
+        ok = ok and passed
+    return ok
+
+
+def make_figure(results: Dict, path: Path) -> None:
+    """Two-panel figure: per-family balanced accuracy, and the ablation ladder."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not installed; skipping figure")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    single = results["single_family"]
+    ladder = results["ablation"]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    fams = list(single.keys())
+    vals = [single[f]["balanced_accuracy"] for f in fams]
+    err = [[single[f]["balanced_accuracy"] - single[f]["ci_low"] for f in fams],
+           [single[f]["ci_high"] - single[f]["balanced_accuracy"] for f in fams]]
+    colors = ["#4c72b0" if f != "null_control" else "#bbbbbb" for f in fams]
+    ax1.bar(fams, vals, yerr=err, capsize=3, color=colors)
+    ax1.axhline(0.5, color="k", ls="--", lw=1)
+    ax1.set_ylabel("balanced accuracy (pooled OOF)")
+    ax1.set_title("Each biosignal family alone")
+    ax1.set_ylim(0.4, 0.72)
+    ax1.tick_params(axis="x", rotation=45)
+
+    steps = [f"+{s['added']}" for s in ladder]
+    lv = [s["balanced_accuracy"] for s in ladder]
+    le = [[s["balanced_accuracy"] - s["ci_low"] for s in ladder],
+          [s["ci_high"] - s["balanced_accuracy"] for s in ladder]]
+    ax2.errorbar(range(len(steps)), lv, yerr=le, marker="o", capsize=3, color="#c44e52")
+    ax2.axhline(0.5, color="k", ls="--", lw=1)
+    ax2.set_xticks(range(len(steps)))
+    ax2.set_xticklabels(steps, rotation=45, ha="right")
+    ax2.set_ylabel("balanced accuracy (pooled OOF)")
+    ax2.set_title("Fusion ladder: signal adds, noise does not")
+    ax2.set_ylim(0.5, 0.68)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"wrote {path}")
 
 
 if __name__ == "__main__":
