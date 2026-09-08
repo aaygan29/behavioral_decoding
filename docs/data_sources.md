@@ -147,6 +147,33 @@ institution's ethics approval covers linking lab data to public platform data.
 
 ---
 
+## Africa
+
+**Neuroimaging for the market-forecasting design: no viable open dataset
+yet.** No public fMRI or EEG dataset collected on an African cohort with the
+modality coverage the *market-forecasting* arm needs (reward-task fMRI, or
+EEG paired with face/behaviour and a real aggregate outcome) was found. This
+is still the gap for that specific design.
+
+**Clinical EEG for a different purpose: found and running.**
+[ASZED-153](https://zenodo.org/records/14178398) (76 schizophrenia patients,
+77 matched controls, Ile-Ife/Ilesa, Nigeria, CC-BY) is real, open, African EEG
+just not shaped for market forecasting. It is used instead for the
+neuroprivacy risk demonstration: [`africa_neuroprivacy.md`](africa_neuroprivacy.md),
+[`../scripts/run_africa_neuroprivacy.py`](../scripts/run_africa_neuroprivacy.py).
+
+**Behaviour + aggregate market outcome: built.** Kenyan Kiva microloan records
+(3,023 individual loans, real repayment outcome, 14 sectors) are wired in and
+running, [`africa_cohort.md`](africa_cohort.md),
+[`../scripts/run_africa_cohort.py`](../scripts/run_africa_cohort.py). This is
+option 3 above (a real market outcome for a stimulus that already exists in
+public), applied to an African market specifically. Kiva's own snapshot host
+is dead; the data was sourced from a public re-host, full provenance and the
+confound that had to be dropped (a risk-assignment column that turned out to
+be a near-perfect proxy for the outcome) are documented there.
+
+---
+
 ## Suggested sequence
 
 1. **DEAP** to get EEG + peripheral + behaviour running end to end against real
