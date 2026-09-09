@@ -87,7 +87,6 @@ def _covariance_block(
     structure the Riemannian tangent-space backend is designed to read.
     """
     n_trials = driver.shape[0]
-    tri_len = n_channels * (n_channels + 1) // 2
     mats = np.empty((n_trials, n_channels, n_channels))
     for t in range(n_trials):
         ts = noise * rng.standard_normal((n_samples, n_channels))
@@ -276,12 +275,14 @@ def main() -> int:
     single: Dict[str, Dict[str, float]] = {}
     for fam in FAMILIES:
         rec = run_experiment(_subset(dataset, [fam]),
-                             _config(f"fusion_single_{fam}", [fam], "accuracy_weighted", args.quick),
+                             _config(f"fusion_single_{fam}", [fam],
+                                     "accuracy_weighted", args.quick),
                              write=False)
         single[fam] = _metrics(rec)
         m = single[fam]
         print(f"  {fam:<13} balacc={m['balanced_accuracy']:.3f}  "
-              f"CI[{m['ci_low']:.3f},{m['ci_high']:.3f}]  auc={m['roc_auc']:.3f}  p={m['perm_p']:.3f}")
+              f"CI[{m['ci_low']:.3f},{m['ci_high']:.3f}]  auc={m['roc_auc']:.3f}  "
+              f"p={m['perm_p']:.3f}")
     results["single_family"] = single
     best_fam = max(single, key=lambda f: single[f]["balanced_accuracy"])
     best = single[best_fam]["balanced_accuracy"]
@@ -355,7 +356,8 @@ def check_gates(results: Dict) -> bool:
     # 3. Adding the null family does not raise ladder accuracy.
     checks.append(("null adds no accuracy in ladder",
                    ladder[-1]["balanced_accuracy"] <= ladder[-2]["balanced_accuracy"] + 1e-9,
-                   f"{ladder[-2]['balanced_accuracy']:.3f} -> {ladder[-1]['balanced_accuracy']:.3f}"))
+                   f"{ladder[-2]['balanced_accuracy']:.3f} -> "
+                   f"{ladder[-1]['balanced_accuracy']:.3f}"))
     # 4. Endocrine (planted weak) ranks below the strong families' mean weight.
     w = aw["weights"]
     strong = np.mean([w["cardiac"], w["eeg"], w["pupil"]])

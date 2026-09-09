@@ -153,7 +153,8 @@ def build_blocks(max_subjects: int | None = None):
         unique_dirs.append(d)
     unique_dirs.sort(key=lambda p: p.name)
 
-    phase_epochs: list[dict] = [dict() for _ in range(N_PHASES)]  # phase_idx -> subject_id -> epochs
+    # phase_idx -> subject_id -> epochs
+    phase_epochs: list[dict] = [dict() for _ in range(N_PHASES)]
     phase_meta = [None] * N_PHASES
     channel_ref = None
     n_used = 0
@@ -232,7 +233,7 @@ def main() -> int:
     print(summarise_alignment(blocks))
 
     y_individual = {}
-    for name, block in blocks.items():
+    for _name, block in blocks.items():
         for s, st in zip(block.subject_ids, block.stimulus_ids):
             y_individual[(s, st)] = float(labels[s])
         break  # keys are shared across all phase blocks by construction
@@ -245,7 +246,8 @@ def main() -> int:
             "source": "ASZED-153 (Zenodo 14178398, CC-BY)",
             "cohort": "Nigeria (OAUTHC Ile-Ife / Wesley Guild Ilesa)",
             "n_subjects": n_used,
-            "purpose": "neuroprivacy risk demonstration: undisclosed-trait decoding from routine EEG",
+            "purpose": ("neuroprivacy risk demonstration: undisclosed-trait "
+                        "decoding from routine EEG"),
         },
     )
 
