@@ -114,6 +114,10 @@ The combined estimate is strictly better than the best single family whenever mo
 than one family carries real, independent signal. accuracy_weighted approximates
 inverse-variance weighting: a higher a_m means a smaller σ_m, so it gets more weight.
 The inequality is the risk claim stated precisely: **independent weak leaks add up.**
+It is proved formally in Lean 4 / Mathlib
+([`proofs/FusionMath.lean`](../proofs/FusionMath.lean), `lake build` exit 0, no
+`sorry`) and checked empirically in
+[`tests/test_fusion_math.py`](../tests/test_fusion_math.py).
 
 **When fusion does *not* help, and the two controls that check it.** The inequality
 assumes real, independent signal. Two failure cases must be ruled out, and the
