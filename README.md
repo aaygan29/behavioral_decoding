@@ -1,26 +1,36 @@
-# behavioral_decoding
+# Biosignal Decoding
 
-Multimodal decoding of **individual choice** and **aggregate market behaviour**
-from fMRI, EEG, facial video, and self-report.
+Multimodal decoding of **individual choice** and **population behaviour** from
+biosignals: neural (fMRI, EEG), peripheral physiology (cardiac, electrodermal,
+pupil), endocrine, facial video, and self-report. One pipeline reads every
+family, with the leakage guards, baselines, and calibration checks such claims
+require.
 
 AIxBio Africa project. Aayush Gandhi and Gowthaam Gokulakrishnan.
+Python package: `behavioral_decoding` (the import path is unchanged).
 
 ---
 
-## The idea
+## Two arcs
 
-A small group of people in a scanner can forecast what a large population will
-do, and the neural signal that does the forecasting is *not* the same signal that
-predicts what any one of those people will choose. Genevsky, Yoon and Knutson
-(2017) found that nucleus accumbens and medial prefrontal activity both predicted
-individual crowdfunding choices, but only NAcc generalised to forecast market
-funding outcomes weeks later, and the scanned sample's own behavioural measures
-forecast nothing.
+**1. Neuroforecasting: brain beats behaviour at the population level.**
+A small group in a scanner can forecast what a large population will do, and the
+signal that forecasts the population is *not* the one that predicts any single
+person's choice. Genevsky, Yoon and Knutson (2017) found nucleus accumbens and
+medial prefrontal activity both predicted individual crowdfunding choices, but
+only NAcc generalised to forecast market outcomes weeks later. The framework
+tests this **individual-vs-aggregate dissociation** across modalities at once.
+Citations with DOIs in [`docs/literature.md`](docs/literature.md).
 
-This repository is a framework for testing that **individual-vs-aggregate
-dissociation** across four modalities at once, with the leakage guards, baselines,
-and calibration checks a claim like it requires. Full citations, with DOIs, in
-[`docs/literature.md`](docs/literature.md).
+**2. Biosignal fusion and the AIxBio risk it creates.**
+The same pipeline absorbs cardiac, electrodermal, pupil, and endocrine signals as
+extra data blocks with no change to the mathematics. Combining several
+individually-weak biosignals recovers more than the best single one (the
+inverse-variance argument), which turns a set of harmless-looking leaks into a
+strong inference over protected health and behavioural attributes. Why that is a
+biosecurity problem, and why it is sharpest for exploited populations, is in
+[`docs/biosignal_fusion.md`](docs/biosignal_fusion.md) and
+[`docs/biosignal_privacy_generalization.md`](docs/biosignal_privacy_generalization.md).
 
 ---
 
@@ -235,7 +245,7 @@ One model per modality, reconciled three ways:
 - **`accuracy_weighted`**: weight each modality by how far its **out-of-fold**
   balanced accuracy exceeds chance.
 
-*Out-of-fold* is the load-bearing word. Weighting by training accuracy would hand
+*Out-of-fold* is the word that matters. Weighting by training accuracy would hand
 the largest weight to whichever model overfits hardest, which for a
 1536-dimensional face embedding is guaranteed. Modalities that cannot beat chance
 on held-out subjects get weight zero, not a floor.
@@ -334,14 +344,15 @@ src/behavioral_decoding/
 ├── pipelines/       end-to-end run and run-record writing
 └── synthetic.py     ground-truth generator (the positive control)
 
-docs/
-├── literature.md    the neuroforecasting canon, with verified DOIs
-├── design.md        each decision, its rejected alternative, and what would falsify it
-├── estimators.md    per-modality base learners incl. the Riemannian EEG path
-├── deap.md          DEAP loader: format traps, circularity, the market route
-├── narps.md         NARPS loader: format, the individual-vs-aggregate honesty point
-└── data_sources.md  candidate datasets per modality, and the gaps between them
+docs/                see docs/README.md for the grouped index
+├── methods:     design.md, estimators.md, literature.md
+├── datasets:    deap.md, narps.md, data_sources.md
+└── biosignal risk / Africa:
+                 biosignal_fusion.md, biosignal_privacy_generalization.md,
+                 africa_cohort.md, africa_neuroprivacy.md
 ```
+
+The fusion figure lives in [`docs/figures/`](docs/figures/biosignal_fusion.png).
 
 ---
 

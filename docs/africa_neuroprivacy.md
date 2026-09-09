@@ -78,8 +78,8 @@ make this decodable with an off-the-shelf pipeline.
   as many epochs as the *shortest* of their four phases allows, so every
   phase-modality is aligned trial-for-trial per subject.
 - **Cohort cut.** Subjects whose first recorded session has exactly four
-  `Phase *.edf` files (70/76 in the site-1 subset) are used, so the four
-  phase-modalities are structurally identical across subjects. This is a
+  `Phase *.edf` files (76 subjects, the count in the run record) are used, so the
+  four phase-modalities are structurally identical across subjects. This is a
   scope decision, not a data-quality filter, the excluded sessions have a
   different phase count, not worse data.
 - **CV.** Grouped by subject (an epoch's fold membership never splits within a
@@ -176,7 +176,7 @@ that binding rule does not yet exist.
 
 ## Limits, stated plainly
 
-- **n is small.** ~70 subjects is workable for a pooled out-of-fold estimate
+- **n is small.** 76 subjects is workable for a pooled out-of-fold estimate
   with a bootstrap interval, but not for strong claims about which spectral
   band or channel is doing the work.
 - **Phase identity is not fully certain.** The dataset's public session
