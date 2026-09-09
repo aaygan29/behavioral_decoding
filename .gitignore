@@ -61,3 +61,6 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Local presentation artifacts (kept off GitHub)
+presentation/
