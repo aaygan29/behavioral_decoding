@@ -198,7 +198,7 @@ def build_blocks(target: str):
 
     per_seg: list[dict[str, np.ndarray]] = [dict() for _ in range(N_SEGMENTS)]
     used = []
-    for sid, y in sorted(labels.items(), key=lambda kv: int(kv[0])):
+    for sid, _y in sorted(labels.items(), key=lambda kv: int(kv[0])):
         paths = [subj_dir / f"{sid}_{k}.txt" for k in range(1, N_SEGMENTS + 1)]
         if not all(p.exists() for p in paths):
             continue
