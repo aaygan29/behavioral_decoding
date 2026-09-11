@@ -132,6 +132,41 @@ ceiling.** Heart rate, skin conductance, pupil and facial tone are all partly dr
 by one arousal system, so stacking them buys less than a naive count suggests. It
 still buys something, and the cheap-hardware argument survives.
 
+
+### 4. Chaining related biosignals: tested, and it did not help
+
+Heart rate and skin conductance are driven by one arousal system, which suggests
+treating them as two indicators of a latent state rather than two independent
+voters (the measurement-model view: indicators -> latent -> behaviour). If that
+worked, an attacker would need only a few cheap indirect sensors to pin the latent,
+making the privacy concern worse.
+
+[`scripts/run_chained_fusion.py`](scripts/run_chained_fusion.py) tests it on the
+generator, where the shared arousal driver is planted and known. Same trials,
+splits, bagging and seed across arms; only the grouping of indicator blocks
+differs. Across three generator seeds:
+
+| contrast | seed 0 | seed 1 | seed 2 | verdict |
+|---|---|---|---|---|
+| two indicators: chained minus voting separately | -0.003 | -0.010 | +0.002 | no effect, sign flips |
+| whole system: chained minus flat | -0.012 | -0.006 | -0.003 | if anything, slightly worse |
+| indirect proxies minus direct measure | +0.033 | -0.019 | +0.008 | no reliable difference |
+
+**Reported because it is a null, not despite it.** On seed 0 alone the indirect
+proxies looked 0.033 better than the direct measure, which would have been a
+satisfying story; across seeds the sign flips. Differences of this size require
+seed variance before they are claimed.
+
+The likely reason late fusion already wins: the reconciler weights each channel by
+its out-of-fold reliability, which *is* the precision weighting the theory calls
+for, and each channel's own model already recovers the shared direction inside the
+fold. Concatenating the columns adds noise without adding information. The
+prediction this leaves behind is that chaining should pay when individual
+indicators are too weak for a supervised model to find the direction alone.
+
+None of this affects the flat fusion claim in part 1, since late fusion was the
+stronger arm.
+
 ---
 
 ## Methods: what each tests, why, and how we know it is the right technique
