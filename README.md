@@ -3,7 +3,6 @@
 Predicting human choice and behaviour from biosignals, and measuring the AIxBio
 safety risk that this creates.
 
-AIxBio Africa project. Aayush Gandhi and Gowthaam Gokulakrishnan.
 Python package: `behavioral_decoding` (import path unchanged).
 
 ---
