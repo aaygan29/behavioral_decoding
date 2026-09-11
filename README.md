@@ -74,17 +74,63 @@ machinery, not a claim about any real person.
 
 ### 2. The single-family leak is already real on real data
 
-| dataset | target | balanced accuracy | 95% CI |
-|---|---|---|---|
-| ASZED-153 EEG (Nigeria) | undisclosed diagnosis | 0.705 | 0.616–0.799 |
-| Kiva microloans (Kenya) | loan repayment | 0.630 | 0.615–0.646 |
-| PPG-BP fingertip pulse | cardiovascular/metabolic status | weaker, reported as such | n/a |
+| dataset | target | n | balanced accuracy | 95% CI | permutation |
+|---|---|---|---|---|---|
+| ds002989 delay-discounting bids | lowball this offer | 40 subjects | **0.882** | 0.861–0.902 | p = 0.001, valid |
+| NARPS ds001734 gambles | accept or reject | 108 subjects | **0.814** | 0.790–0.836 | p = 0.001, valid |
+| ASZED-153 EEG (Nigeria) | undisclosed diagnosis | 76 subjects | **0.705** | 0.616–0.799 | degenerate, see below |
+| Kiva microloans (Kenya) | loan repayment | 3,023 loans | **0.631** | 0.615–0.646 | degenerate, see below |
+| PPG-BP fingertip pulse | hypertension / diabetes / sex | 219 subjects | 0.580 / 0.542 / 0.528 | CIs touch or cross 0.5 | n/a |
 
-Same pipeline, real publicly-licensed data, including African clinical EEG. Fusion
-(part 1) is the multiplier that would turn these real weak leaks into a strong one.
+Same pipeline, real publicly-licensed data, 443 people in total, including African
+clinical EEG and Kenyan borrower records. Fusion (part 1) is the multiplier that
+would turn these real single-channel leaks into a strong one.
+
+**The two OpenNeuro arms are behaviour only.** An archive download of ds001734 and
+ds002989 contains real `events.tsv` files but git-annex *pointer stubs* where the
+BOLD volumes should be, so no imaging is used and no imaging claim is made. What is
+real is the human decisions: 27,454 gambles and 4,134 bids. See
+[`scripts/run_narps_behavior.py`](scripts/run_narps_behavior.py) and
+[`scripts/run_delay_discounting.py`](scripts/run_delay_discounting.py).
+
+**On the two degenerate permutation tests.** The label shuffle is done *within
+subject*. Diagnosis never varies within a subject, and each Kiva loan is its own
+group of one, so the null collapses onto the observed value and reports p = 1.0 by
+construction. That is a tool/data mismatch, not evidence against the effect; the
+subject-level bootstrap CIs are the valid statistic and both exclude chance. The two
+behavioural arms above do not have this problem (labels vary within a person), and
+their nulls sit where they should, at 0.536 and 0.500.
+
 Details: [`docs/africa_neuroprivacy.md`](docs/africa_neuroprivacy.md),
 [`docs/africa_cohort.md`](docs/africa_cohort.md),
 [`docs/biosignal_privacy_generalization.md`](docs/biosignal_privacy_generalization.md).
+
+
+### 3. What a further channel would buy (projection, calibrated)
+
+No open cohort carries cardiac, facial, pupil and economic-choice data on the same
+people, so the value of a *fourth* sensor cannot be measured here. It can be
+projected: the combination rule proved in [`proofs/FusionMath.lean`](proofs/FusionMath.lean)
+fixes the answer once the per-channel strengths are stated.
+[`scripts/project_fusion_gain.py`](scripts/project_fusion_gain.py) maps balanced
+accuracy to a discriminability that adds across independent channels, and reports a
+band over the error correlation rho rather than one flattering number.
+
+It is calibrated against a result we actually measured: from the five per-family
+accuracies of the synthetic control it predicts 0.645 under independence, against a
+measured 0.623, closest at rho = 0.2. That is the expected direction, because the
+cardiac and EDA families were generated from one shared arousal driver.
+
+| channels held, each worth 0.60 alone | independent | rho = 0.3 | rho = 0.5 |
+|---|---|---|---|
+| 2 | 0.640 | 0.623 | 0.615 |
+| 4 | 0.694 | 0.643 | 0.626 |
+| 5 | 0.714 | 0.649 | 0.628 |
+
+The defensive reading: **independence between sensors, not sensor count, sets the
+ceiling.** Heart rate, skin conductance, pupil and facial tone are all partly driven
+by one arousal system, so stacking them buys less than a naive count suggests. It
+still buys something, and the cheap-hardware argument survives.
 
 ---
 
@@ -149,6 +195,11 @@ pip install -e ".[dev]"
 
 python scripts/run_demo.py --quick             # end-to-end on synthetic data
 python scripts/run_biosignal_fusion.py --quick # the fusion experiment + gates
+python scripts/project_fusion_gain.py --validate   # projection + its calibration check
+
+# real behavioural cohorts (events only; no imaging needed)
+python scripts/run_narps_behavior.py --root data/raw/narps_events
+python scripts/run_delay_discounting.py --root data/raw/ds002989
 ```
 
 The fusion script prints the per-family baselines, the fused result, the ablation
