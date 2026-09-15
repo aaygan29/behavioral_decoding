@@ -257,6 +257,25 @@ ruff check src tests scripts
 
 ---
 
+## Related work
+
+Full literature basis: [`docs/literature.md`](docs/literature.md). Two entries
+there are methodological grounding for the behavioral decoding arms
+specifically, not evidence about this repo's own results:
+
+- Takács et al., Carandini M. (2026, *bioRxiv*, mouse SC inactivation) supports
+  logistic/DDM-style behavioral readouts as mechanistically meaningful and
+  motivates reporting bias and sensitivity (intercept vs. slope) separately
+  rather than as one collapsed accuracy number.
+- Li, Chrysanthidis, Brincat, Rose & Miller (2026, *iScience*, NHP LPFC value
+  coding) gives a methods template for validating a decoder: cross-condition
+  generalization tests (train on one condition, test on another) to check for
+  a condition-invariant code, plus variance decomposition to separate an
+  accuracy gain driven by between-class separation from one driven by reduced
+  within-class noise.
+
+---
+
 ## Ethics and scope
 
 All datasets are public and appropriately licensed, cited where used. The project is
