@@ -182,3 +182,80 @@ samplers with cross-validation: resampling must happen inside the fold. The test
 `tests/test_leakage.py::test_smote_before_split_inflates_accuracy_and_the_pipeline_does_not`
 reproduces the inflation on pure noise so the magnitude is on record rather than
 assumed.
+
+---
+
+## 5. Decision geometry and behavioral readout validity
+
+Two recent papers, checked 2026-09-15, ground the framework's behavioral
+readouts (logistic and DDM-style choice models) and offer a methods template
+for testing whether a decoder is reading a condition-invariant code rather
+than a per-condition shortcut. Both are cited as methodological grounding for
+how this repo evaluates behavioral decoders, not as claims about this repo's
+own results.
+
+### Takács et al., Carandini M. (2026), *bioRxiv*
+**The role of superior colliculus in a logistic decision.**
+[10.64898/2026.06.05.730072](https://doi.org/10.64898/2026.06.05.730072) (v2)
+
+In mice, optogenetic inactivation of the superior colliculus (SC) shifted
+choice bias contralaterally without changing sensitivity, and the effect of
+bilateral inactivation was additive. Choice behavior across conditions was well
+fit by a logistic model with a weighted sum of sensory and bias terms.
+
+Relevance here: this is direct support for treating logistic (and DDM-style)
+behavioral readouts as mechanistically meaningful rather than purely
+descriptive curve fits, and it motivates reporting **bias and sensitivity
+separately** (intercept vs. slope) rather than collapsing them into one
+accuracy number when evaluating a behavioral decoding arm.
+
+### Li H, Chrysanthidis N, Brincat SL, Rose J, Miller EK. (2026), *iScience*
+**Neural subspace reorganization reflects value-based decision-making.**
+29:117492. [10.1016/j.isci.2026.117492](https://doi.org/10.1016/j.isci.2026.117492)
+
+In non-human primate lateral prefrontal cortex, the authors combine LDA
+decoding with a Lasso-coded subspace-alignment analysis (Pearson correlation of
+coding vectors, principal angles) over pseudopopulation bootstraps. Chosen and
+unchosen value representations rotate into orthogonal subspaces after the
+decision, and the chosen-option subspaces align across conditions, which
+enables cross-condition decoding (train on the first-chosen option, test on
+the second-chosen option). The decoding gains traced to an increase in
+between-class variance, not a decrease in within-class noise.
+
+Relevance here: this supplies a methods template this repo can borrow when
+validating a decoder: (1) a **cross-condition generalization test**, training
+on one condition and testing on another, as evidence a decoder has learned a
+condition-invariant code rather than overfitting to one condition's nuisance
+structure, and (2) a **variance decomposition** to check whether an accuracy
+gain came from separating classes further apart or from reducing noise within
+a class, which changes how a reported gain should be interpreted. Caveats:
+2 animals, correlational (no causal manipulation), and a discrete-option task,
+so the generalization of the subspace-alignment finding itself is limited.
+
+### What these entries turned into: additive evaluation utilities
+
+Both entries above are implemented as small, additive evaluation utilities
+that sit alongside the existing metrics in `src/behavioral_decoding/evaluation/`
+without changing any existing pipeline, model, or result:
+
+- **`evaluation/choice_psychometrics.py`** (Takács et al. style): fits
+  `P(choice) = sigmoid(bias + slope * evidence [+ lapse])` per
+  condition or subject (`fit_psychometric`), reports bias and sensitivity as
+  two separate bootstrap-CI'd numbers (`bias_sensitivity_ci`) rather than one
+  collapsed accuracy figure, and tests whether two manipulations combine
+  additively or interact via an interaction term in a logistic GLM
+  (`additivity_test`).
+- **`evaluation/decoding_geometry.py`** (Li et al. style): (a)
+  `cross_condition_generalization` trains on one condition and tests on
+  another, compares against a group-aware within-condition CV baseline, and
+  runs a label-permutation null; (b) `variance_decomposition` splits an
+  accuracy change along the LDA axis into between-class and within-class
+  variance; (c) `subspace_alignment` reports the mean Pearson correlation of
+  per-class coding vectors between two conditions plus principal angles
+  between the class-mean subspaces.
+
+These utilities are opt-in: they are exported from
+`behavioral_decoding.evaluation` alongside the existing metrics, but nothing
+in the existing pipelines or NeurIPS-workshop-facing scripts calls them.
+Synthetic ground-truth tests for both modules live in
+`tests/test_decision_geometry.py`.
