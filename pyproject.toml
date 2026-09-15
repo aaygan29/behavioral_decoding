@@ -9,7 +9,7 @@ description = "Multimodal decoding of individual choice and aggregate market beh
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Aayush Gandhi" }, { name = "Gowthaam Gopalakrishnan" }]
+authors = [{ name = "The authors" }]
 keywords = [
     "neuroforecasting",
     "fMRI",
