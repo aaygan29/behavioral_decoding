@@ -231,3 +231,31 @@ gain came from separating classes further apart or from reducing noise within
 a class, which changes how a reported gain should be interpreted. Caveats:
 2 animals, correlational (no causal manipulation), and a discrete-option task,
 so the generalization of the subspace-alignment finding itself is limited.
+
+### What these entries turned into: additive evaluation utilities
+
+Both entries above are implemented as small, additive evaluation utilities
+that sit alongside the existing metrics in `src/behavioral_decoding/evaluation/`
+without changing any existing pipeline, model, or result:
+
+- **`evaluation/choice_psychometrics.py`** (Takács et al. style): fits
+  `P(choice) = sigmoid(bias + slope * evidence [+ lapse])` per
+  condition or subject (`fit_psychometric`), reports bias and sensitivity as
+  two separate bootstrap-CI'd numbers (`bias_sensitivity_ci`) rather than one
+  collapsed accuracy figure, and tests whether two manipulations combine
+  additively or interact via an interaction term in a logistic GLM
+  (`additivity_test`).
+- **`evaluation/decoding_geometry.py`** (Li et al. style): (a)
+  `cross_condition_generalization` trains on one condition and tests on
+  another, compares against a group-aware within-condition CV baseline, and
+  runs a label-permutation null; (b) `variance_decomposition` splits an
+  accuracy change along the LDA axis into between-class and within-class
+  variance; (c) `subspace_alignment` reports the mean Pearson correlation of
+  per-class coding vectors between two conditions plus principal angles
+  between the class-mean subspaces.
+
+These utilities are opt-in: they are exported from
+`behavioral_decoding.evaluation` alongside the existing metrics, but nothing
+in the existing pipelines or NeurIPS-workshop-facing scripts calls them.
+Synthetic ground-truth tests for both modules live in
+`tests/test_decision_geometry.py`.

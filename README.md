@@ -274,6 +274,15 @@ specifically, not evidence about this repo's own results:
   accuracy gain driven by between-class separation from one driven by reduced
   within-class noise.
 
+Both papers are implemented as small, additive evaluation utilities, opt-in
+and separate from the existing pipelines: `evaluation/choice_psychometrics.py`
+(logistic bias/sensitivity fits with bootstrap CIs, and an additivity test for
+two manipulations) and `evaluation/decoding_geometry.py` (cross-condition
+generalization with a permutation null, between/within-class variance
+decomposition, and subspace alignment via coding-vector correlation and
+principal angles). See [`docs/literature.md`](docs/literature.md) section 5
+for details and citations.
+
 ---
 
 ## Ethics and scope
